@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { slugify } from "@/lib/slugify";
 import { toast } from "react-toastify";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEye, faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
 
 type CategoryDTO = {
   term_taxonomy_id: number;
@@ -13,7 +15,6 @@ type CategoryDTO = {
   description: string;
   parent: number;
   count: number;
-  // optional helper for rendering tree
   _depth?: number;
 };
 
@@ -27,35 +28,27 @@ export default function CategoryPage() {
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [parent, setParent] = useState<number | "">("");
+  const [editingTTId, setEditingTTId] = useState<number | null>(null);
 
   // list helpers
-  const [q, setQ] = useState(""); // search
-  const [selected, setSelected] = useState<Record<number, boolean>>({});
+  const [q, setQ] = useState("");
   const [sortAsc, setSortAsc] = useState(true);
 
   const effectiveSlug = useMemo(() => slugify(slug || name), [slug, name]);
 
   function normalizeTree(rows: CategoryDTO[]): CategoryDTO[] {
-    // quick flat->tree->flat to mimic WP indent (based on parent term_taxonomy_id)
     const byTT: Record<number, CategoryDTO> = {};
     rows.forEach(r => (byTT[r.term_taxonomy_id] = { ...r, _depth: 0 }));
 
-    const roots: CategoryDTO[] = [];
     rows.forEach((r) => {
-      if (!r.parent || !byTT[r.parent]) {
-        roots.push(byTT[r.term_taxonomy_id]);
-      } else {
-        // child
+      if (r.parent && byTT[r.parent]) {
         byTT[r.term_taxonomy_id]._depth = (byTT[r.parent]._depth ?? 0) + 1;
       }
     });
 
-    // simple order by name (asc/desc)
     const ordered = [...rows].sort((a, b) =>
       sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
     );
-
-    // return ordered with computed depth
     return ordered.map(r => byTT[r.term_taxonomy_id]);
   }
 
@@ -79,6 +72,22 @@ export default function CategoryPage() {
     void load();
   }, []);
 
+  function beginEdit(cat: CategoryDTO) {
+    setEditingTTId(cat.term_taxonomy_id);
+    setName(cat.name);
+    setSlug(cat.slug);
+    setDescription(cat.description || "");
+    setParent(cat.parent || "");
+  }
+
+  function resetForm() {
+    setEditingTTId(null);
+    setName("");
+    setSlug("");
+    setDescription("");
+    setParent("");
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -90,60 +99,79 @@ export default function CategoryPage() {
     }
 
     try {
-      const res = await fetch("/api/r2/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          slug: effectiveSlug,
-          description: description.trim(),
-          parent: parent === "" ? null : Number(parent),
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Failed to create category");
+      if (editingTTId) {
+        // UPDATE
+        const res = await fetch(`/api/r2/categories/${editingTTId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            slug: effectiveSlug,
+            description: description.trim(),
+            parent: parent === "" ? null : Number(parent),
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error || "Failed to update category");
+        }
+        toast.success("Category updated.");
+      } else {
+        // CREATE
+        const res = await fetch("/api/r2/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            slug: effectiveSlug,
+            description: description.trim(),
+            parent: parent === "" ? null : Number(parent),
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error || "Failed to create category");
+        }
+        toast.success("Category created.");
       }
-      // reset + reload
-      setName("");
-      setSlug("");
-      setDescription("");
-      setParent("");
+
+      resetForm();
       await load();
-      toast.success("Category created successfully.");
     } catch (e: any) {
-      setError(e.message || "Failed to create category");
-      toast.error(e.message || "Failed to create category");
+      setError(e.message || "Save failed");
+      toast.error(e.message || "Save failed");
+    }
+  }
+
+  async function onDelete(ttid: number) {
+    if (!confirm("Delete this category? Child categories will be moved to root.")) return;
+    try {
+      const res = await fetch(`/api/r2/categories/${ttid}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 204) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || "Delete failed");
+      }
+      toast.success("Category deleted.");
+      if (editingTTId === ttid) resetForm();
+      await load();
+    } catch (e: any) {
+      toast.error(e.message || "Delete failed");
     }
   }
 
   const flat = useMemo(() => normalizeTree(cats), [cats, sortAsc]);
   const filtered = useMemo(
-    () =>
-      q
-        ? flat.filter(
-            (c) =>
-              c.name.toLowerCase().includes(q.toLowerCase()) ||
-              c.slug.toLowerCase().includes(q.toLowerCase())
-          )
-        : flat,
+    () => (q ? flat.filter(
+      c => c.name.toLowerCase().includes(q.toLowerCase()) || c.slug.toLowerCase().includes(q.toLowerCase())
+    ) : flat),
     [q, flat]
   );
 
-  function toggleAll(checked: boolean) {
-    const next: Record<number, boolean> = {};
-    if (checked) filtered.forEach((c) => (next[c.term_taxonomy_id] = true));
-    setSelected(next);
-  }
-  function toggleOne(id: number, checked: boolean) {
-    setSelected((s) => ({ ...s, [id]: checked }));
-  }
-
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
-      {/* Left: form */}
+      {/* Left: form (Create / Update) */}
       <div>
-        <h2 style={{ marginBottom: 12 }}>Add New Category</h2>
+        <h2 style={{ marginBottom: 12 }}>{editingTTId ? "Edit Category" : "Add New Category"}</h2>
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
           <label>
             <div>Name *</div>
@@ -195,8 +223,15 @@ export default function CategoryPage() {
             />
           </label>
 
-          <div>
-            <button type="submit" style={{ padding: "8px 14px" }}>Add Category</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" style={{ padding: "8px 14px" }}>
+              {editingTTId ? "Update Category" : "Add Category"}
+            </button>
+            {editingTTId && (
+              <button type="button" onClick={resetForm} style={{ padding: "8px 14px" }}>
+                Cancel
+              </button>
+            )}
           </div>
 
           {error && <div style={{ color: "crimson" }}>{error}</div>}
@@ -208,7 +243,7 @@ export default function CategoryPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <h2 style={{ margin: 0, marginRight: "auto" }}>Categories</h2>
           <input
-            placeholder="Search categories…"
+            placeholder="Search…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             style={{ padding: 8, minWidth: 220 }}
@@ -224,37 +259,48 @@ export default function CategoryPage() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ borderBottom: "1px solid #ddd", padding: 8, width: 36 }}>
-                  <input
-                    type="checkbox"
-                    onChange={(e) => toggleAll(e.currentTarget.checked)}
-                    checked={
-                      filtered.length > 0 &&
-                      filtered.every((c) => selected[c.term_taxonomy_id])
-                    }
-                    aria-label="Select all"
-                  />
-                </th>
                 <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Name</th>
                 <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Slug</th>
                 <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>Count</th>
+                <th style={{ textAlign: "center", borderBottom: "1px solid #ddd", padding: 8, width: 120 }}>
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((c) => (
                 <tr key={c.term_taxonomy_id}>
                   <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={!!selected[c.term_taxonomy_id]}
-                      onChange={(e) => toggleOne(c.term_taxonomy_id, e.currentTarget.checked)}
-                    />
-                  </td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>
                     <span style={{ paddingLeft: (c._depth ?? 0) * 16 }}>{c.name}</span>
                   </td>
                   <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>{c.slug}</td>
                   <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "right" }}>{c.count}</td>
+                  <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "center" }}>
+                    <button
+                      title="View"
+                      onClick={() => toast.info(`${c.name}\nslug: ${c.slug}\nid: ${c.term_taxonomy_id}`)}
+                      style={{ background: "transparent", border: 0, cursor: "pointer", marginRight: 8 }}
+                      aria-label={`View ${c.name}`}
+                    >
+                      <FontAwesomeIcon icon={faEye} />
+                    </button>
+                    <button
+                      title="Edit"
+                      onClick={() => beginEdit(c)}
+                      style={{ background: "transparent", border: 0, cursor: "pointer", marginRight: 8 }}
+                      aria-label={`Edit ${c.name}`}
+                    >
+                      <FontAwesomeIcon icon={faPenToSquare} />
+                    </button>
+                    <button
+                      title="Delete"
+                      onClick={() => onDelete(c.term_taxonomy_id)}
+                      style={{ background: "transparent", border: 0, cursor: "pointer", color: "crimson" }}
+                      aria-label={`Delete ${c.name}`}
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {!filtered.length && (

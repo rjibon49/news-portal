@@ -46,7 +46,6 @@ export async function createCategoryRepo(input: CreateCategoryInput): Promise<Ca
   const { name, slug, description = "", parent } = input;
 
   const created = await withTx(async (cx) => {
-    // parent validation (if provided)
     if (parent) {
       const [prow] = await cx.query<any[]>(
         `SELECT term_taxonomy_id FROM wp_term_taxonomy WHERE term_taxonomy_id = ? AND taxonomy = 'category' LIMIT 1`,
@@ -59,14 +58,9 @@ export async function createCategoryRepo(input: CreateCategoryInput): Promise<Ca
       }
     }
 
-    // check term by slug
-    const [trows] = await cx.query<any[]>(
-      `SELECT term_id, slug FROM wp_terms WHERE slug = ? LIMIT 1`,
-      [slug]
-    );
+    const [trows] = await cx.query<any[]>(`SELECT term_id, slug FROM wp_terms WHERE slug = ? LIMIT 1`, [slug]);
 
     let termId: number;
-
     if (trows?.length) {
       termId = Number(trows[0].term_id);
       const [catRows] = await cx.query<any[]>(
@@ -102,4 +96,145 @@ export async function createCategoryRepo(input: CreateCategoryInput): Promise<Ca
   const dto = await getCategoryByTTIdRepo(created.term_taxonomy_id);
   if (!dto) throw new Error("Failed to fetch created category");
   return dto;
+}
+
+export type UpdateCategoryInput = {
+  term_taxonomy_id: number;
+  name?: string;
+  slug?: string;
+  description?: string;
+  parent?: number | null;
+};
+
+/**
+ * Conservative update:
+ * - Validates parent (not itself; must exist if provided)
+ * - If slug changes: must be unique across wp_terms (avoid conflicts)
+ * - Updates wp_terms (name/slug) and wp_term_taxonomy (description/parent)
+ */
+export async function updateCategoryRepo(input: UpdateCategoryInput): Promise<CategoryDTO> {
+  const { term_taxonomy_id, name, slug, description, parent } = input;
+
+  await withTx(async (cx) => {
+    // Find current term/tt
+    const [curRows] = await cx.query<any[]>(
+      `SELECT tt.term_taxonomy_id, tt.term_id, tt.parent, t.name, t.slug
+         FROM wp_term_taxonomy tt
+         JOIN wp_terms t ON t.term_id = tt.term_id
+        WHERE tt.term_taxonomy_id = ? AND tt.taxonomy = 'category' LIMIT 1`,
+      [term_taxonomy_id]
+    );
+    if (!curRows?.length) {
+      const err: any = new Error("Category not found");
+      err.status = 404;
+      throw err;
+    }
+    const cur = curRows[0] as { term_id: number; slug: string };
+
+    // Parent validation
+    if (parent != null) {
+      if (parent === term_taxonomy_id) {
+        const err: any = new Error("A category cannot be its own parent");
+        err.status = 400;
+        throw err;
+      }
+      if (parent > 0) {
+        const [prow] = await cx.query<any[]>(
+          `SELECT term_taxonomy_id FROM wp_term_taxonomy WHERE term_taxonomy_id = ? AND taxonomy='category' LIMIT 1`,
+          [parent]
+        );
+        if (!prow?.length) {
+          const err: any = new Error("Invalid parent category");
+          err.status = 400;
+          throw err;
+        }
+      }
+    }
+
+    // If slug changes, enforce uniqueness across wp_terms (simple rule)
+    if (slug && slug !== cur.slug) {
+      const [conflict] = await cx.query<any[]>(
+        `SELECT term_id FROM wp_terms WHERE slug = ? AND term_id <> ? LIMIT 1`,
+        [slug, cur.term_id]
+      );
+      if (conflict?.length) {
+        const err: any = new Error("Slug already in use.");
+        err.status = 409;
+        throw err;
+      }
+    }
+
+    // Update wp_terms
+    if (name || slug) {
+      const newName = name ?? curRows[0].name;
+      const newSlug = slug ?? curRows[0].slug;
+      await cx.execute(
+        `UPDATE wp_terms SET name = ?, slug = ? WHERE term_id = ?`,
+        [newName, newSlug, cur.term_id]
+      );
+    }
+
+    // Update wp_term_taxonomy
+    if (description != null || parent != null) {
+      await cx.execute(
+        `UPDATE wp_term_taxonomy SET description = COALESCE(?, description), parent = COALESCE(?, parent)
+         WHERE term_taxonomy_id = ?`,
+        [description ?? null, parent ?? null, term_taxonomy_id]
+      );
+    }
+  });
+
+  const dto = await getCategoryByTTIdRepo(term_taxonomy_id);
+  if (!dto) throw new Error("Failed to fetch updated category");
+  return dto;
+}
+
+/**
+ * Delete category:
+ * - Re-parent children to root (parent=0)
+ * - Remove relationships
+ * - Delete tt row
+ * - If term has no other taxonomies, delete term row
+ */
+export async function deleteCategoryRepo(term_taxonomy_id: number): Promise<void> {
+  await withTx(async (cx) => {
+    // fetch tt -> term_id
+    const [tt] = await cx.query<any[]>(
+      `SELECT term_id FROM wp_term_taxonomy WHERE term_taxonomy_id = ? AND taxonomy='category' LIMIT 1`,
+      [term_taxonomy_id]
+    );
+    if (!tt?.length) {
+      const err: any = new Error("Category not found");
+      err.status = 404;
+      throw err;
+    }
+    const termId = Number(tt[0].term_id);
+
+    // re-parent children to root
+    await cx.execute(
+      `UPDATE wp_term_taxonomy SET parent = 0 WHERE taxonomy='category' AND parent = ?`,
+      [term_taxonomy_id]
+    );
+
+    // remove relationships
+    await cx.execute(
+      `DELETE FROM wp_term_relationships WHERE term_taxonomy_id = ?`,
+      [term_taxonomy_id]
+    );
+
+    // delete taxonomy row
+    await cx.execute(
+      `DELETE FROM wp_term_taxonomy WHERE term_taxonomy_id = ? AND taxonomy='category'`,
+      [term_taxonomy_id]
+    );
+
+    // if no more taxonomies reference the term, delete term row
+    const [others] = await cx.query<any[]>(
+      `SELECT 1 FROM wp_term_taxonomy WHERE term_id = ? LIMIT 1`,
+      [termId]
+    );
+    if (!others?.length) {
+      await cx.execute(`DELETE FROM wp_terms WHERE term_id = ?`, [termId]);
+    }
+  });
 }
