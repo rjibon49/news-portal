@@ -1,7 +1,10 @@
 // src/db/repo/users.repo.ts
-import { query } from "@/db/mysql";
+import { execute, query, withTx } from "@/db/mysql";
 import type { WPUser } from "@/types/wp";
 import { parseWpCapabilities, primaryRoleLabel } from "@/lib/wordpress/capabilities";
+import { slugify } from "@/lib/slugify";
+import bcrypt from "bcryptjs";
+
 
 // Keep your original field set
 const USER_FIELDS = `
@@ -153,4 +156,118 @@ export async function listUsersRepo(params: ListUsersParams = {}): Promise<ListU
   });
 
   return { rows: mapped, total, page, perPage };
+}
+
+
+// PHP serialized wp_capabilities তৈরি
+function serializeCaps(role: UserRole): string {
+  const key = role; // e.g. "administrator"
+  return `a:1:{s:${key.length}:"${key}";b:1;}`;
+}
+type UserRole = "administrator" | "editor" | "author" | "contributor" | "subscriber";
+const ROLE_LEVEL: Record<UserRole, number> = {
+  administrator: 10,
+  editor: 7,
+  author: 2,
+  contributor: 1,
+  subscriber: 0,
+};
+
+export type CreateUserInput = {
+  username: string;
+  email: string;
+  password: string;          // plain; will be bcrypt'd
+  first_name?: string;
+  last_name?: string;
+  website?: string;
+  bio?: string;              // Biographical Info -> usermeta 'description'
+  role: UserRole;
+  avatarUrl?: string;
+};
+
+export type CreatedUserDTO = {
+  id: number;
+  username: string;
+  email: string;
+  display_name: string;
+  role: UserRole;
+};
+
+export async function createUserRepo(input: CreateUserInput): Promise<CreatedUserDTO> {
+  const {
+    username,
+    email,
+    password,
+    first_name = "",
+    last_name = "",
+    website = "",
+    bio = "",
+    role,
+    avatarUrl,
+  } = input;
+
+  const exists = await query<{ ID: number }>(
+    `SELECT ID FROM wp_users WHERE user_login = ? OR user_email = ? LIMIT 1`,
+    [username, email]
+  );
+  if (exists.length) {
+    const e: any = new Error("Username or email already exists.");
+    e.status = 409;
+    throw e;
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+  const display = `${first_name} ${last_name}`.trim() || username;
+  const nicename = slugify(display || username, { keepUnicode: false });
+
+  const insertId = await withTx(async (cx) => {
+    // wp_users
+    const [ins] = await cx.execute<any>(
+      `INSERT INTO wp_users
+        (user_login, user_pass, user_nicename, user_email, user_url,
+         user_registered, user_activation_key, user_status, display_name)
+       VALUES (?, ?, ?, ?, ?, NOW(), '', 0, ?)`,
+      [username, hash, nicename, email, website, display]
+    );
+    const userId = Number((ins as any).insertId);
+
+    // metas
+    const metas: Array<[string, string]> = [
+      ["wp_capabilities", serializeCaps(role)],
+      ["wp_user_level", String(ROLE_LEVEL[role])],
+      ["first_name", first_name],
+      ["last_name", last_name],
+      ["nickname", display || username],
+      ["description", bio],
+      // optional goodies:
+      ["rich_editing", "true"],
+      ["show_admin_bar_front", "true"],
+    ];
+
+    // ⬇️ avatar দিলে usermeta তে সেভ হবে
+    if (avatarUrl) {
+      metas.push(["profile_picture", avatarUrl]);   // আমাদের UI-র জন্য
+      // কিছু থিম/প্লাগিন এই key নামও দেখে:
+      metas.push(["wp_user_avatar", avatarUrl]);    // ঐচ্ছিক কম্প্যাট
+    }
+
+    const values = metas.map(() => "(?, ?, ?)").join(", ");
+    const params: any[] = [];
+    metas.forEach(([k, v]) => params.push(userId, k, v));
+
+    await cx.execute(
+      `INSERT INTO wp_usermeta (user_id, meta_key, meta_value) VALUES ${values}`,
+      params
+    );
+
+    return userId;
+  });
+
+  return {
+    id: insertId,
+    username,
+    email,
+    display_name: display,
+    role,
+  };
 }

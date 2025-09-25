@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 import { isAdmin } from "@/lib/auth/isAdmin";
 import { listUsersRepo } from "@/db/repo/users.repo";
+import { createUserRepo } from "@/db/repo/users.repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,5 +44,34 @@ export async function GET(req: Request) {
     return NextResponse.json(result);
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed to load users" }, { status: 400 });
+  }
+}
+
+const CreateSchema = z.object({
+  username: z.string().min(3).max(60),
+  email: z.string().email().max(100),
+  password: z.string().min(6).max(150),
+  first_name: z.string().max(60).optional().default(""),
+  last_name: z.string().max(60).optional().default(""),
+  website: z.string().url().max(200).optional().or(z.literal("")).default(""),
+  bio: z.string().max(1000).optional().default(""),
+  role: z.enum(["administrator", "editor", "author", "contributor", "subscriber"]),
+});
+
+export async function POST(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    const uid = Number((session as any)?.user?.id || 0);
+    if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!(await isAdmin(uid))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const body = await req.json().catch(() => ({}));
+    const data = CreateSchema.parse(body);
+
+    const created = await createUserRepo(data);
+    return NextResponse.json(created, { status: 201 });
+  } catch (e: any) {
+    const status = e?.status ?? 400;
+    return NextResponse.json({ error: e.message || "Failed to create user" }, { status });
   }
 }

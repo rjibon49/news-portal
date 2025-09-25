@@ -33,7 +33,11 @@ export default function Dashboard() {
         <Link href="/">Home</Link>
         <Link href="/dashboard">Dashboard</Link>
         <Link href="/dashboard/post/new">Add Post</Link>
-        <Link href="/dashboard/category">Categories</Link>
+        <Link href="/dashboard/categories">Categories</Link>
+        <Link href="/dashboard/tags">Tags</Link>
+        <Link href="/dashboard/media">Media</Link>
+        <Link href="/dashboard/users">Users</Link>
+        <Link href="/dashboard/users/new">Add User</Link>
         <span style={{ marginLeft: 'auto', opacity: 0.8 }}>
           Signed in as {session?.user?.username || session?.user?.email}
         </span>
