@@ -1,12 +1,17 @@
+// next.config.ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   experimental: {
-    // lets Next bundle native deps correctly on the server
-    serverComponentsExternalPackages: ["mysql2", "sequelize"],
+    // Allow larger multipart/form-data for App Router route handlers (uploads)
+    serverActions: {
+      bodySizeLimit: "25mb",
+    },
+    // bundle native deps used on the server
+    serverComponentsExternalPackages: ["mysql2", "sharp"],
   },
   webpack: (config) => {
-    // ignore drivers you don’t use when Webpack is in play
+    // ignore DB drivers you don't use
     config.resolve.alias = {
       ...(config.resolve.alias ?? {}),
       "pg-hstore": false,
