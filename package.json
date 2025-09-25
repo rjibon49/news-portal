@@ -1,21 +1,39 @@
 {
   "name": "news-portal",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:ping": "node -e \"require('./dist/db/sql').ping()\"",
+    "db:seed-admin": "node --env-file=.env.local --loader ts-node/esm --no-warnings src/db/createAdminUser.ts"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.0.1",
+    "@fortawesome/free-solid-svg-icons": "^7.0.1",
+    "@fortawesome/react-fontawesome": "^3.0.2",
+    "@tinymce/tinymce-react": "^6.3.0",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.2",
+    "mysql2": "^3.15.0",
+    "next": "15.5.3",
+    "next-auth": "^4.24.11",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.3"
+    "react-toastify": "^11.0.5",
+    "sharp": "^0.34.4",
+    "tinymce": "^8.1.2",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/node": "^20",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.19.17",
     "@types/react": "^19",
-    "@types/react-dom": "^19"
+    "@types/react-dom": "^19",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.2"
   }
 }
