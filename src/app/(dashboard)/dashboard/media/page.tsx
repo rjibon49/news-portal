@@ -1,10 +1,11 @@
 // src/app/(dashboard)/dashboard/media/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faCopy, faFloppyDisk } from "@fortawesome/free-solid-svg-icons";
+import Pagination from "@/components/ui/Pagination";
 
 type MediaItem = {
   ID: number;
@@ -26,16 +27,17 @@ type ListResp = {
 };
 
 export default function MediaLibraryPage() {
+  // -------- list state --------
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
-  const [type, setType] = useState<"all"|"image"|"video"|"audio"|"other">("all");
+  const [type, setType] = useState<"all" | "image" | "video" | "audio" | "other">("all");
+  const [yearMonth, setYearMonth] = useState<string | "">("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(40);
   const [total, setTotal] = useState(0);
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / perPage)), [total, perPage]);
 
-  // selected (details panel)
+  // -------- selection + edit form --------
   const [sel, setSel] = useState<MediaItem | null>(null);
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
@@ -43,40 +45,68 @@ export default function MediaLibraryPage() {
 
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // -------- load list from API (filters + pagination aware) --------
   async function load() {
     setLoading(true);
     try {
       const qs = new URLSearchParams({
-        q, type, page: String(page), perPage: String(perPage),
+        q,
+        type,
+        page: String(page),
+        perPage: String(perPage),
       });
+      if (yearMonth) qs.set("yearMonth", yearMonth);
+
       const res = await fetch(`/api/r2/media?${qs.toString()}`, { cache: "no-store" });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Failed to load media");
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error || "Failed to load media");
+
+      const data = j as ListResp;
+
+      // ✅ FIX: Safely check if `data.rows` is an array before setting state to prevent crashes.
+      if (Array.isArray(data?.rows)) {
+        setItems(data.rows);
+        setTotal(data.total || 0);
+        // Set a default selection if nothing is selected yet
+        if (data.rows.length && !sel) {
+          setSel(data.rows[0]);
+        }
+      } else {
+        // Handle cases where the API might return unexpected data
+        console.error("API returned unexpected data structure:", j);
+        toast.error("Received invalid data from the server.");
+        setItems([]); // Fallback to an empty array
+        setTotal(0);
       }
-      const json = (await res.json()) as ListResp;
-      setItems(json.rows);
-      setTotal(json.total);
-      if (json.rows.length && !sel) setSel(json.rows[0]);
     } catch (e: any) {
-      toast.error(e.message || "Failed to load media");
+      toast.error(e?.message || "Failed to load media");
+      setItems([]); // Also clear items on error
+      setTotal(0);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [q, type, page, perPage]);
+  // -------- reload when filters / pagination change --------
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, type, yearMonth, page, perPage]);
 
+  // -------- keep side form in sync with selection --------
   useEffect(() => {
     if (sel) {
       setTitle(sel.post_title || "");
       setCaption(sel.post_excerpt || "");
       setDescription(sel.post_content || "");
     } else {
-      setTitle(""); setCaption(""); setDescription("");
+      setTitle("");
+      setCaption("");
+      setDescription("");
     }
   }, [sel]);
 
+  // -------- upload handler --------
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -84,35 +114,32 @@ export default function MediaLibraryPage() {
       const fd = new FormData();
       fd.append("file", file);
       const up = await fetch("/api/r2/upload/local", { method: "POST", body: fd });
-      if (!up.ok) {
-        const j = await up.json().catch(() => ({}));
-        throw new Error(j?.error || "Upload failed");
-      }
-      const { url } = await up.json();
+      const u = await up.json();
+      if (!up.ok) throw new Error(u?.error || "Upload failed");
 
       const created = await fetch("/api/r2/media", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url,
+          url: u.url,
           title: file.name.replace(/\.[^.]+$/, ""),
           mimeType: file.type || undefined,
         }),
       });
-      if (!created.ok) {
-        const j = await created.json().catch(() => ({}));
-        throw new Error(j?.error || "Failed to register attachment");
-      }
+      const cj = await created.json().catch(() => ({}));
+      if (!created.ok) throw new Error(cj?.error || "Failed to register attachment");
+
       toast.success("Uploaded");
       setPage(1);
       await load();
     } catch (e: any) {
-      toast.error(e.message || "Upload failed");
+      toast.error(e?.message || "Upload failed");
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
   }
 
+  // -------- save meta --------
   async function saveMeta() {
     if (!sel) return;
     try {
@@ -121,56 +148,89 @@ export default function MediaLibraryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, caption, description }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Save failed");
-      }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Save failed");
       toast.success("Saved");
       await load();
     } catch (e: any) {
-      toast.error(e.message || "Save failed");
+      toast.error(e?.message || "Save failed");
     }
   }
 
+  // -------- delete --------
   async function onDelete() {
     if (!sel) return;
     if (!confirm("Delete this file permanently?")) return;
     try {
       const res = await fetch(`/api/r2/media/${sel.ID}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Delete failed");
-      }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 204) throw new Error(j?.error || "Delete failed");
       toast.success("Deleted");
       setSel(null);
       await load();
     } catch (e: any) {
-      toast.error(e.message || "Delete failed");
+      toast.error(e?.message || "Delete failed");
     }
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+    <div className="container" style={{ display: "grid", gridTemplateColumns: "5fr 1fr", gap: 16 }}>
       {/* Left: toolbar + grid */}
       <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+        <div className="toolbar" style={{ gap: 8 }}>
           <input
+            className="input"
             placeholder="Search media…"
             value={q}
-            onChange={(e) => { setPage(1); setQ(e.target.value); }}
-            style={{ padding: 8, minWidth: 260 }}
+            onChange={(e) => {
+              setPage(1);
+              setQ(e.target.value);
+            }}
           />
-          <select value={type} onChange={(e) => { setPage(1); setType(e.target.value as any); }} style={{ padding: 8 }}>
+          <select
+            className="select"
+            value={type}
+            onChange={(e) => {
+              setPage(1);
+              setType(e.target.value as typeof type);
+            }}
+          >
             <option value="all">All media items</option>
             <option value="image">Images</option>
             <option value="video">Videos</option>
             <option value="audio">Audio</option>
             <option value="other">Other</option>
           </select>
-
+          <input
+            className="input"
+            type="month"
+            value={yearMonth}
+            onChange={(e) => {
+              setPage(1);
+              setYearMonth(e.target.value);
+            }}
+            title="Filter by month"
+          />
+          <button
+            className="btn-ghost"
+            onClick={async () => {
+              const res = await fetch("/api/r2/media/import", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+              });
+              const j = await res.json();
+              if (!res.ok) return toast.error(j?.error || "Import failed");
+              toast.success(`Imported: ${j.inserted} (scanned ${j.scanned})`);
+              setPage(1);
+              await load();
+            }}
+          >
+            Re-index uploads
+          </button>
           <label style={{ marginLeft: "auto" }}>
             <input ref={fileRef} type="file" hidden onChange={onUpload} />
-            <button onClick={() => fileRef.current?.click()} style={{ padding: "8px 12px" }}>
+            <button onClick={() => fileRef.current?.click()} className="btn-ghost">
               Add Media File
             </button>
           </label>
@@ -191,14 +251,19 @@ export default function MediaLibraryPage() {
                 key={m.ID}
                 onClick={() => setSel(m)}
                 style={{
-                  border: sel?.ID === m.ID ? "2px solid dodgerblue" : "1px solid #444",
-                  padding: 0, cursor: "pointer", background: "transparent",
+                  border: sel?.ID === m.ID ? "2px solid var(--brand)" : "1px solid var(--border)",
+                  padding: 0,
+                  cursor: "pointer",
+                  background: "transparent",
                 }}
                 title={m.post_title}
               >
-                {/* thumb */}
                 {m.post_mime_type.startsWith("image/") ? (
-                  <img src={m.guid} alt={m.post_title} style={{ width: "100%", height: 120, objectFit: "cover" }} />
+                  <img
+                    src={m.guid}
+                    alt={m.post_title}
+                    style={{ width: "100%", height: 120, objectFit: "cover" }}
+                  />
                 ) : (
                   <div style={{ height: 120, display: "grid", placeItems: "center" }}>
                     <code>{m.post_mime_type}</code>
@@ -210,24 +275,21 @@ export default function MediaLibraryPage() {
           </div>
         )}
 
-        {/* pagination */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end", marginTop: 12 }}>
-          <label>
-            <span style={{ marginRight: 6 }}>Per page</span>
-            <select value={perPage} onChange={(e) => { setPage(1); setPerPage(Number(e.target.value)); }} style={{ padding: 6 }}>
-              {[20, 40, 80, 120].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-          <button onClick={() => setPage(1)} disabled={page <= 1}>«</button>
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>‹</button>
-          <span>Page {page} / {totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>›</button>
-          <button onClick={() => setPage(totalPages)} disabled={page >= totalPages}>»</button>
-        </div>
+        <Pagination
+          total={total}
+          page={page}
+          perPage={perPage}
+          perPageOptions={[20, 40, 80, 120]}
+          onPageChange={setPage}
+          onPerPageChange={(n) => {
+            setPerPage(n);
+            setPage(1);
+          }}
+        />
       </div>
 
       {/* Right: details panel */}
-      <aside style={{ borderLeft: "1px solid #333", paddingLeft: 12 }}>
+      <aside style={{ borderLeft: "1px solid var(--border)", paddingLeft: 12 }}>
         {sel ? (
           <div style={{ display: "grid", gap: 10 }}>
             <div>
@@ -235,42 +297,55 @@ export default function MediaLibraryPage() {
                 <img src={sel.guid} alt={sel.post_title} style={{ maxWidth: "100%", borderRadius: 6 }} />
               )}
             </div>
-
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
+            <div className="dim" style={{ fontSize: 12 }}>
               <div>File type: {sel.post_mime_type}</div>
-              <div>Uploaded: {sel.post_date}</div>
+              <div>Uploaded: {new Date(sel.post_date).toLocaleString()}</div>
               <div>By: {sel.author_name || sel.post_author}</div>
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                 <button
-                  onClick={() => navigator.clipboard.writeText(new URL(sel.guid, location.origin).toString()).then(() => toast.info("URL copied"))}
+                  onClick={() =>
+                    navigator.clipboard
+                      .writeText(new URL(sel.guid, location.origin).toString())
+                      .then(() => toast.info("URL copied"))
+                  }
                   title="Copy URL"
+                  className="btn-ghost"
                 >
                   <FontAwesomeIcon icon={faCopy} /> Copy URL
                 </button>
-                <button onClick={onDelete} title="Delete" style={{ color: "crimson" }}>
+                <button onClick={onDelete} title="Delete" className="btn-ghost btn-danger">
                   <FontAwesomeIcon icon={faTrash} /> Delete
                 </button>
               </div>
             </div>
-
             <label>
-              <div>Title</div>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%", padding: 8 }} />
+              <span className="label">Title</span>
+              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
             </label>
             <label>
-              <div>Caption</div>
-              <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={2} style={{ width: "100%", padding: 8 }} />
+              <span className="label">Caption</span>
+              <textarea
+                className="textarea"
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                rows={2}
+              />
             </label>
             <label>
-              <div>Description</div>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} style={{ width: "100%", padding: 8 }} />
+              <span className="label">Description</span>
+              <textarea
+                className="textarea"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+              />
             </label>
-            <button onClick={saveMeta} style={{ padding: "8px 12px" }}>
+            <button onClick={saveMeta} className="btn">
               <FontAwesomeIcon icon={faFloppyDisk} /> Save
             </button>
           </div>
         ) : (
-          <div style={{ opacity: 0.7 }}>Select a media item to view details.</div>
+          <div className="dim">Select a media item to view details.</div>
         )}
       </aside>
     </div>

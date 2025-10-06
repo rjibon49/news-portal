@@ -1,5 +1,7 @@
 // src/types/wp.ts
 
+/** Core WP tables --------------------------------------------------------- */
+
 export interface WPUser {
   ID: number;
   user_login: string;
@@ -7,15 +9,15 @@ export interface WPUser {
   user_nicename: string;
   user_email: string;
   user_url: string;
-  user_registered: string;
+  user_registered: string;      // DATETIME
   user_activation_key: string;
   user_status: number;
-  display_name: string;
+  display_name: string;         // varchar(250) in your DB
 }
 
 export interface WPUserMeta {
   umeta_id: number;
-  user_id: number;
+  user_id: number;              // FK -> wp_users.ID
   meta_key: string;
   meta_value: string;
 }
@@ -29,32 +31,41 @@ export interface WPTerm {
 
 export interface WPTermTaxonomy {
   term_taxonomy_id: number;
-  term_id: number;
-  taxonomy: string;              // 'category' | 'post_tag' | custom
+  term_id: number;              // FK -> wp_terms.term_id
+  taxonomy: string;             // 'category' | 'post_tag' | custom
   description: string;
-  parent: number;                // parent term_taxonomy_id
+  parent: number;               // bigint(20) unsigned (আপনার স্কিমা)
   count: number;
 }
 
 export interface WPTermRelationship {
-  object_id: number;             // post ID
+  object_id: number;            // post ID
   term_taxonomy_id: number;
   term_order: number;
 }
 
+export type WPPostStatus =
+  | "publish"
+  | "draft"
+  | "pending"
+  | "future"
+  | "private"
+  | "trash"
+  | string;
+
 export interface WPPost {
   ID: number;
   post_author: number;
-  post_date: string;
-  post_date_gmt: string;
+  post_date: string;            // DATETIME (local)
+  post_date_gmt: string;        // DATETIME (UTC)
   post_content: string;
   post_title: string;
   post_excerpt: string;
-  post_status: string;           // 'publish' | 'draft' | 'pending' | ...
-  comment_status: string;        // 'open' | 'closed'
-  ping_status: string;           // 'open' | 'closed'
+  post_status: WPPostStatus;
+  comment_status: string;       // 'open' | 'closed'
+  ping_status: string;          // 'open' | 'closed'
   post_password: string;
-  post_name: string;             // slug
+  post_name: string;            // slug
   to_ping: string;
   pinged: string;
   post_modified: string;
@@ -63,7 +74,7 @@ export interface WPPost {
   post_parent: number;
   guid: string;
   menu_order: number;
-  post_type: string;             // 'post' | 'page' | 'attachment' | ...
+  post_type: string;            // 'post' | 'page' | 'attachment' | ...
   post_mime_type: string;
   comment_count: number;
 }
@@ -97,16 +108,62 @@ export interface WPOption {
   option_id: number;
   option_name: string;
   option_value: string;
-  autoload: string;              // 'yes'|'no'
+  autoload: string;             // 'yes' | 'no'
 }
 
-// Handy DTOs used in UI/APIs
+/** Your custom tables ----------------------------------------------------- */
+
+export type PostFormat = "standard" | "gallery" | "video";
+
+export interface WPPostExtra {
+  post_id: number;              // PK + FK -> wp_posts.ID
+  subtitle: string | null;      // varchar(255)
+  highlight: string | null;     // varchar(255)
+  format: PostFormat;           // enum
+  gallery_json: string | null;  // LONGTEXT (JSON string)
+  video_embed: string | null;   // MEDIUMTEXT
+  updated_at: string;           // TIMESTAMP
+}
+
+export interface WPPostGallery {
+  id: number;                   // PK
+  post_id: number;              // FK -> wp_posts.ID
+  media_id: number;             // attachment ID (if you use)
+  sort_order: number;           // int
+}
+
+export interface WPPostEditLog {
+  id: number;
+  post_id: number;
+  editor_id: number;
+  edited_at: string;
+
+  title: string | null;
+  content: string | null;
+  excerpt: string | null;
+  status: string | null;
+  slug: string | null;
+  post_date: string | null;
+  post_modified: string | null;
+
+  featured_image_id: number | null;
+  scheduled_at: string | null;
+
+  categories_json: string | null; // JSON string
+  tags_json: string | null;       // JSON string
+  extra_json: string | null;      // JSON string
+  meta_json: string | null;       // JSON string
+  snapshot_hash: string;
+}
+
+/** Handy DTOs used in UI/APIs ------------------------------------------- */
+
 export type CategoryDTO = {
   term_taxonomy_id: number;
   term_id: number;
   name: string;
   slug: string;
   description: string;
-  parent: number;
+  parent: number;                // parent tt_id in your DB
   count: number;
 };

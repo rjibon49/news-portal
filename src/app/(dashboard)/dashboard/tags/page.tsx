@@ -1,12 +1,24 @@
-// src/app/(dashboard)/dashboard/tag/page.tsx
+// src/app/(dashboard)/dashboard/tags/page.tsx
+
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
+import useSWR, { mutate as globalMutate } from "swr";
+import Link from "next/link";
 import { slugify } from "@/lib/slugify";
 import { toast } from "react-toastify";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEye, faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
+import Pagination from "@/components/ui/Pagination"; // ✅ reusable pagination
 
+// ---------------- Types ----------------
 type TagDTO = {
   term_taxonomy_id: number;
   term_id: number;
@@ -16,42 +28,87 @@ type TagDTO = {
   count: number;
 };
 
-export default function TagPage() {
-  const [tags, setTags] = useState<TagDTO[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// ---------------- SWR fetcher ----------------
+const fetcher = (url: string) =>
+  fetch(url, { cache: "no-store" }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || "Failed to load tags");
+    return j as TagDTO[]; // API returns TagDTO[]
+  });
 
-  // form
+function useTags() {
+  const { data } = useSWR<TagDTO[]>("/api/r2/tags", fetcher, { suspense: true });
+  return data!;
+}
+
+// ==========================================================
+// Page shell with auth guard + suspense boundaries
+// ==========================================================
+export default function TagPage() {
+  const { isLoading, isAuthenticated } = useRequireAuth();
+  if (isLoading) return <div className="container">Loading…</div>;
+  if (!isAuthenticated) return null;
+
+  return (
+    <div
+      className="container"
+      style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}
+    >
+      <Suspense
+        fallback={
+          <div>
+            <h2 className="mb-12">Add New Tag</h2>
+            <div className="card" aria-busy="true" style={{ opacity: 0.6, padding: 16 }}>
+              Loading form…
+            </div>
+          </div>
+        }
+      >
+        <TagFormPanel />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <div>
+            <div className="toolbar">
+              <h2 className="m-0" style={{ marginRight: "auto" }}>Tags</h2>
+              <input className="input" placeholder="Search tags…" disabled />
+            </div>
+            <div className="card" aria-busy="true" style={{ opacity: 0.6, padding: 16 }}>
+              Loading tags…
+            </div>
+          </div>
+        }
+      >
+        <TagTablePanel />
+      </Suspense>
+    </div>
+  );
+}
+
+// ==========================================================
+// Left panel: Create / Edit form
+// ==========================================================
+function TagFormPanel() {
+  const tags = useTags();
+  const [isPending, startTransition] = useTransition();
+
+  // form state
+  const [editingTTId, setEditingTTId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
-  const [editingTTId, setEditingTTId] = useState<number | null>(null);
-
-  // list helpers
-  const [q, setQ] = useState("");
-  const [sortAsc, setSortAsc] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const effectiveSlug = useMemo(() => slugify(slug || name), [slug, name]);
 
-  async function load() {
-    setLoading(true);
+  function resetForm() {
+    setEditingTTId(null);
+    setName("");
+    setSlug("");
+    setDescription("");
     setError(null);
-    try {
-      const res = await fetch("/api/r2/tags", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load tags");
-      const data = (await res.json()) as TagDTO[];
-      setTags(data);
-    } catch (e: any) {
-      setError(e.message || "Error loading tags");
-      toast.error(e.message || "Error loading tags");
-    } finally {
-      setLoading(false);
-    }
   }
-
-  useEffect(() => {
-    void load();
-  }, []);
 
   function beginEdit(t: TagDTO) {
     setEditingTTId(t.term_taxonomy_id);
@@ -59,221 +116,278 @@ export default function TagPage() {
     setSlug(t.slug);
     setDescription(t.description || "");
   }
-  function resetForm() {
-    setEditingTTId(null);
-    setName("");
-    setSlug("");
-    setDescription("");
-  }
+
+  // 🔔 listen to "tag:edit" events from table
+  useEffect(() => {
+    const onEdit = (ev: Event) => {
+      const tag = (ev as CustomEvent<TagDTO>).detail;
+      if (tag) beginEdit(tag);
+    };
+    window.addEventListener("tag:edit", onEdit as EventListener);
+    return () => window.removeEventListener("tag:edit", onEdit as EventListener);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim()) {
+
+    const nm = name.trim();
+    if (!nm) {
       const msg = "Name is required.";
       setError(msg);
       toast.error(msg);
       return;
     }
 
-    try {
-      if (editingTTId) {
-        const res = await fetch(`/api/r2/tags/${editingTTId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name.trim(),
-            slug: effectiveSlug,
-            description: description.trim(),
-          }),
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j?.error || "Failed to update tag");
+    startTransition(async () => {
+      try {
+        if (editingTTId) {
+          const res = await fetch(`/api/r2/tags/${editingTTId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: nm,
+              slug: effectiveSlug,
+              description: description.trim(),
+            }),
+          });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error(j?.error || "Failed to update tag");
+          }
+          toast.success("Tag updated.");
+        } else {
+          const res = await fetch("/api/r2/tags", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: nm,
+              slug: effectiveSlug,
+              description: description.trim(),
+            }),
+          });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error(j?.error || "Failed to create tag");
+          }
+          toast.success("Tag created.");
         }
-        toast.success("Tag updated.");
-      } else {
-        const res = await fetch("/api/r2/tags", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name.trim(),
-            slug: effectiveSlug,
-            description: description.trim(),
-          }),
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j?.error || "Failed to create tag");
-        }
-        toast.success("Tag created.");
+
+        resetForm();
+        await globalMutate("/api/r2/tags");
+      } catch (e: any) {
+        const msg = e?.message || "Save failed";
+        setError(msg);
+        toast.error(msg);
       }
-      resetForm();
-      await load();
-    } catch (e: any) {
-      setError(e.message || "Save failed");
-      toast.error(e.message || "Save failed");
-    }
+    });
+  }
+
+  return (
+    <div>
+      <h2 className="mb-12">{editingTTId ? "Edit Tag" : "Add New Tag"}</h2>
+
+      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
+        <label>
+          <span className="label">Name *</span>
+          <input
+            className="input"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Tag name"
+            required
+            disabled={isPending}
+          />
+        </label>
+
+        <label>
+          <span className="label">Slug (optional)</span>
+          <input
+            className="input"
+            type="text"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="auto-generated from name"
+            disabled={isPending}
+          />
+          <small className="dim">
+            Preview: <code>{effectiveSlug}</code>
+          </small>
+        </label>
+
+        <label>
+          <span className="label">Description</span>
+          <textarea
+            className="textarea"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            disabled={isPending}
+          />
+        </label>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="submit" className="btn" disabled={isPending}>
+            {editingTTId ? "Update Tag" : "Add Tag"}
+          </button>
+          {editingTTId && (
+            <button type="button" onClick={resetForm} className="btn-ghost" disabled={isPending}>
+              Cancel
+            </button>
+          )}
+        </div>
+
+        {error && <div style={{ color: "crimson" }}>{error}</div>}
+      </form>
+    </div>
+  );
+}
+
+// ==========================================================
+// Right panel: List + actions (+ ✅ pagination)
+// ==========================================================
+function TagTablePanel() {
+  const tags = useTags();
+  const [q, setQ] = useState("");
+  const [sortAsc, setSortAsc] = useState(true);
+  const [isPending, startTransition] = useTransition();
+
+  // 🔢 pagination state
+  const [page, setPage] = useState(1);       // 1-based
+  const [perPage, setPerPage] = useState(20);
+
+  // filter + sort (pure) — pagination থেকে আলাদা রাখা হয়েছে
+  const filtered = useMemo(() => {
+    const base = Array.isArray(tags) ? tags : [];
+    const list = q
+      ? base.filter(
+          (t) =>
+            t.name.toLowerCase().includes(q.toLowerCase()) ||
+            t.slug.toLowerCase().includes(q.toLowerCase())
+        )
+      : base;
+    return [...list].sort((a, b) =>
+      sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+    );
+  }, [tags, q, sortAsc]);
+
+  // 🧹 search/sort বদলালে প্রথম পেজে ফেরত
+  useEffect(() => {
+    setPage(1);
+  }, [q, sortAsc]);
+
+  // বর্তমান পেজের slice
+  const paged = useMemo(() => {
+    const start = (page - 1) * perPage;
+    const end = start + perPage;
+    return filtered.slice(start, end);
+  }, [filtered, page, perPage]);
+
+  function beginEdit(tag: TagDTO) {
+    window.dispatchEvent(new CustomEvent<TagDTO>("tag:edit", { detail: tag }));
   }
 
   async function onDelete(ttid: number) {
     if (!confirm("Delete this tag? It will be removed from any posts.")) return;
-    try {
-      const res = await fetch(`/api/r2/tags/${ttid}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Delete failed");
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/r2/tags/${ttid}`, { method: "DELETE" });
+        if (!res.ok && res.status !== 204) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error || "Delete failed");
+        }
+        toast.success("Tag deleted.");
+        await globalMutate("/api/r2/tags");
+      } catch (e: any) {
+        toast.error(e?.message || "Delete failed");
       }
-      toast.success("Tag deleted.");
-      if (editingTTId === ttid) resetForm();
-      await load();
-    } catch (e: any) {
-      toast.error(e.message || "Delete failed");
-    }
+    });
   }
 
-  const filtered = useMemo(
-    () =>
-      (q
-        ? tags.filter(
-            (t) =>
-              t.name.toLowerCase().includes(q.toLowerCase()) ||
-              t.slug.toLowerCase().includes(q.toLowerCase())
-          )
-        : [...tags]
-      ).sort((a, b) =>
-        sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
-      ),
-    [q, tags, sortAsc]
-  );
-
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
-      {/* Left: form */}
-      <div>
-        <h2 style={{ marginBottom: 12 }}>{editingTTId ? "Edit Tag" : "Add New Tag"}</h2>
-        <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
-          <label>
-            <div>Name *</div>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Tag name"
-              required
-              style={{ width: "100%", padding: 8 }}
-            />
-          </label>
-
-          <label>
-            <div>Slug (optional)</div>
-            <input
-              type="text"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder="auto-generated from name"
-              style={{ width: "100%", padding: 8 }}
-            />
-            <small style={{ opacity: 0.7 }}>Preview: <code>{effectiveSlug}</code></small>
-          </label>
-
-          <label>
-            <div>Description</div>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              style={{ width: "100%", padding: 8 }}
-            />
-          </label>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="submit" style={{ padding: "8px 14px" }}>
-              {editingTTId ? "Update Tag" : "Add Tag"}
-            </button>
-            {editingTTId && (
-              <button type="button" onClick={resetForm} style={{ padding: "8px 14px" }}>
-                Cancel
-              </button>
-            )}
-          </div>
-
-          {error && <div style={{ color: "crimson" }}>{error}</div>}
-        </form>
+    <div>
+      <div className="toolbar">
+        <h2 className="m-0" style={{ marginRight: "auto" }}>Tags</h2>
+        <input
+          className="input"
+          placeholder="Search tags…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          disabled={isPending}
+        />
+        <button className="btn-ghost" onClick={() => setSortAsc((v) => !v)} disabled={isPending}>
+          Sort: {sortAsc ? "A→Z" : "Z→A"}
+        </button>
       </div>
 
-      {/* Right: table */}
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <h2 style={{ margin: 0, marginRight: "auto" }}>Tags</h2>
-          <input
-            placeholder="Search tags…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
-          />
-          <button onClick={() => setSortAsc((v) => !v)} style={{ padding: "6px 10px" }}>
-            Sort: {sortAsc ? "A→Z" : "Z→A"}
-          </button>
-        </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Slug</th>
+            <th className="text-right">Count</th>
+            <th className="actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {paged.map((t) => (
+            <tr key={t.term_taxonomy_id}>
+              <td>{t.name}</td>
+              <td>{t.slug}</td>
+              <td className="text-right">{t.count}</td>
+              <td>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                  <Link
+                    href={`/tags/${encodeURIComponent(t.slug)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-ghost"
+                    title="Open on website"
+                    aria-label={`Open ${t.name} on website`}
+                  >
+                    <FontAwesomeIcon icon={faEye} />
+                  </Link>
+                  <button
+                    title="Edit"
+                    onClick={() => beginEdit(t)}
+                    className="btn-ghost"
+                    aria-label={`Edit ${t.name}`}
+                    disabled={isPending}
+                  >
+                    <FontAwesomeIcon icon={faPenToSquare} />
+                  </button>
+                  <button
+                    title="Delete"
+                    onClick={() => onDelete(t.term_taxonomy_id)}
+                    className="btn-ghost btn-danger"
+                    aria-label={`Delete ${t.name}`}
+                    disabled={isPending}
+                  >
+                    <FontAwesomeIcon icon={faTrash} />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {!paged.length && (
+            <tr>
+              <td colSpan={4} className="text-center dim" style={{ padding: 12 }}>
+                No tags found.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
 
-        {loading ? (
-          <div>Loading…</div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Name</th>
-                <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Slug</th>
-                <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>Count</th>
-                <th style={{ textAlign: "center", borderBottom: "1px solid #ddd", padding: 8, width: 120 }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t) => (
-                <tr key={t.term_taxonomy_id}>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>{t.name}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>{t.slug}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "right" }}>{t.count}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "center" }}>
-                    <button
-                      title="View"
-                      onClick={() => toast.info(`${t.name}\nslug: ${t.slug}\nid: ${t.term_taxonomy_id}`)}
-                      style={{ background: "transparent", border: 0, cursor: "pointer", marginRight: 8 }}
-                      aria-label={`View ${t.name}`}
-                    >
-                      <FontAwesomeIcon icon={faEye} />
-                    </button>
-                    <button
-                      title="Edit"
-                      onClick={() => beginEdit(t)}
-                      style={{ background: "transparent", border: 0, cursor: "pointer", marginRight: 8 }}
-                      aria-label={`Edit ${t.name}`}
-                    >
-                      <FontAwesomeIcon icon={faPenToSquare} />
-                    </button>
-                    <button
-                      title="Delete"
-                      onClick={() => onDelete(t.term_taxonomy_id)}
-                      style={{ background: "transparent", border: 0, cursor: "pointer", color: "crimson" }}
-                      aria-label={`Delete ${t.name}`}
-                    >
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!filtered.length && (
-                <tr>
-                  <td colSpan={4} style={{ padding: 12, textAlign: "center", opacity: 0.75 }}>
-                    No tags found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* ✅ Pagination (client-side) */}
+      <Pagination
+        total={filtered.length}            // মোট ফিল্টারড রেকর্ড
+        page={page}
+        perPage={perPage}
+        onPageChange={setPage}
+        onPerPageChange={(n) => { setPerPage(n); setPage(1); }}
+      />
     </div>
   );
 }

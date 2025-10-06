@@ -1,0 +1,77 @@
+/* File: src/app/(dashboard)/dashboard/posts/new/newPost.module.css */
+
+/* Layout */
+.dashboardContainer { width: 100%; max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+.headerRow { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+.pageTitle { margin: 0; }
+
+.grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+.mainCol { display: flex; flex-direction: column; gap: 16px; }
+.sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+/* Fields */
+.field { display: block; }
+.input { width: 100%; padding: 10px 12px; }
+.inputSm { width: 120px; height: 28px; padding: 4px 8px; font-size: 13px; }
+.textarea { width: 100%; padding: 8px 12px; }
+.helper { color: #666; font-size: 12px; margin-top: 4px; display: block; }
+
+/* Details (excerpt) */
+.details { border: 1px solid #ddd; border-radius: 6px; padding: 8px; }
+.detailsSummary { cursor: pointer; font-weight: 500; padding: 4px; }
+.detailsBody { margin-top: 8px; }
+
+/* Cards */
+.card {}
+.cardHd { padding: 12px; border-bottom: 1px solid #eee; }
+.cardBd { padding: 16px; }
+.cardBdCol { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.cardFoot { color: #666; font-size: 12px; padding: 8px 12px; border-top: 1px solid #eee; }
+
+/* Chips */
+.chipRow { display: flex; gap: 8px; margin-bottom: 16px; }
+.chip { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: transparent; cursor: pointer; }
+.chipActive { background: #007bff; color: #fff; border-color: #007bff; }
+
+/* Utility rows */
+.rowBetween { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.flexGrow { flex: 1; }
+.checkboxRow { display: flex; align-items: center; gap: 8px; }
+.actionsRow { display: flex; gap: 8px; }
+
+/* Buttons tweak */
+.primary { background: #007bff; color: #fff; }
+.ghost { border: 1px solid #ddd; background: transparent; }
+.dangerGhost { border: 1px solid #dc3545; color: #dc3545; background: transparent; }
+
+/* Muted text */
+.muted { color: #666; font-size: 12px; }
+.mutedCenter { text-align: center; color: #666; font-size: 12px; }
+
+/* Gallery */
+.galleryGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.galleryItem { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #f9f9f9; }
+.galleryThumb { width: 100%; height: 100px; object-fit: cover; display: block; }
+.galleryPlaceholder { height: 100px; display: grid; place-items: center; opacity: .6; background: #eee; }
+.galleryActions { display: flex; gap: 4px; padding: 6px; }
+
+/* Featured */
+.featuredWrap { position: relative; width: 100%; aspect-ratio: 16 / 9; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #f9f9f9; }
+.featuredImg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.selectBox { width: 100%; padding: 12px; border: 2px dashed #ddd; border-radius: 8px; background: transparent; }
+
+/* Categories */
+.catList { padding: 12px; max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.catItem { display: flex; align-items: center; gap: 8px; }
+.catLabel { display: inline-block; font-size: 14px; }
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .grid { grid-template-columns: 1fr; }
+  .sidebar { order: -1; }
+}
+@media (max-width: 480px) {
+  .headerRow { gap: 8px; }
+  .actionsRow { flex-direction: column; }
+  .inputSm { width: 100%; }
+}

@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "db:ping": "node -e \"require('./dist/db/sql').ping()\"",
-    "db:seed-admin": "node --env-file=.env.local --loader ts-node/esm --no-warnings src/db/createAdminUser.ts"
+    "db:seed-admin": "node --env-file=.env.local --loader ts-node/esm --no-warnings src/db/createAdminUser.ts",
+    "cron:publish": "tsx scripts/publish-future-posts.ts"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.0.1",
@@ -23,7 +24,9 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-toastify": "^11.0.5",
+    "recharts": "^3.2.1",
     "sharp": "^0.34.4",
+    "swr": "^2.3.6",
     "tinymce": "^8.1.2",
     "zod": "^4.1.11"
   },

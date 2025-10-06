@@ -1,13 +1,15 @@
 // src/types/next-auth.d.ts
+// -----------------------------------------------------------------------------
+// Type augmentation for NextAuth (Session/User/JWT)
+// -----------------------------------------------------------------------------
 
 import { DefaultSession } from "next-auth";
 
-// ---- augment next-auth session/user ----
 declare module "next-auth" {
   interface Session {
     user: {
-      id: string;
-      username?: string | null;
+      id: string;                // ← required in our app
+      username?: string | null;  // ← wp_users.user_login
     } & DefaultSession["user"];
   }
 
@@ -17,7 +19,6 @@ declare module "next-auth" {
   }
 }
 
-// ---- augment JWT so token.id & token.username are typed ----
 declare module "next-auth/jwt" {
   interface JWT {
     id?: string;

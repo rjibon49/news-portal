@@ -1,5 +1,4 @@
 // src/components/media/MediaPicker.tsx
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -14,13 +13,9 @@ type MediaItem = {
 };
 
 export type MediaPickerProps = {
-  /** open/close control from parent */
   open: boolean;
-  /** Called when user clicks outside / presses ESC / Close */
   onClose: () => void;
-  /** Called when user hits "Select" on a chosen image */
   onSelect: (item: MediaItem) => void;
-  /** Only show images (default true) */
   imagesOnly?: boolean;
 };
 
@@ -68,12 +63,24 @@ export default function MediaPicker({
         throw new Error(j?.error || "Failed to load media");
       }
       const json = await res.json();
-      setItems(json.rows);
-      setTotal(json.total);
-      if (json.rows.length) setSel(json.rows[0]);
-      else setSel(null);
+      
+      // ✅ FIX: Safely check if `json.rows` is an array before setting state.
+      if (Array.isArray(json?.rows)) {
+        setItems(json.rows);
+        setTotal(json.total || 0);
+        setSel(json.rows.length ? json.rows[0] : null);
+      } else {
+        console.error("MediaPicker API returned unexpected data:", json);
+        toast.error("Received invalid data from server.");
+        setItems([]); // Fallback to avoid crash
+        setTotal(0);
+        setSel(null);
+      }
     } catch (e: any) {
       toast.error(e.message || "Failed to load media");
+      setItems([]); // Also clear items on error
+      setTotal(0);
+      setSel(null);
     } finally {
       setLoading(false);
     }
@@ -88,17 +95,15 @@ export default function MediaPicker({
     const f = e.target.files?.[0];
     if (!f) return;
     try {
-      // 1) local upload (sharp -> /public/uploads/…)
       const fd = new FormData();
       fd.append("file", f);
-      const up = await fetch("/api/upload/local", { method: "POST", body: fd });
+      const up = await fetch("/api/r2/upload/local", { method: "POST", body: fd });
       if (!up.ok) {
         const j = await up.json().catch(() => ({}));
         throw new Error(j?.error || "Upload failed");
       }
       const { url } = await up.json();
 
-      // 2) register as attachment
       const created = await fetch("/api/r2/media", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -115,7 +120,7 @@ export default function MediaPicker({
       toast.success("Uploaded");
       setTab("library");
       setPage(1);
-      await load();
+      // No need to call load() again, useEffect will trigger it.
     } catch (e: any) {
       toast.error(e.message || "Upload failed");
     } finally {
@@ -139,7 +144,6 @@ export default function MediaPicker({
         padding: 20,
       }}
       onMouseDown={(e) => {
-        // close if clicked on overlay
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -158,24 +162,26 @@ export default function MediaPicker({
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", padding: "0 14px", borderBottom: "1px solid #222" }}>
           <strong style={{ flex: 1 }}>Choose Image</strong>
-          <button onClick={onClose}>✕</button>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
         </div>
 
         {/* Body */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 280px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", overflow: "hidden" }}>
           {/* left: upload/library */}
-          <div style={{ padding: 12, borderRight: "1px solid #222" }}>
+          <div style={{ padding: 12, borderRight: "1px solid #222", display: 'flex', flexDirection: 'column' }}>
             {/* tabs */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 10, flexShrink: 0 }}>
               <button
+                type="button"
                 onClick={() => setTab("upload")}
-                style={{ padding: "6px 10px", borderBottom: tab === "upload" ? "2px solid dodgerblue" : "2px solid transparent" }}
+                style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: "6px 10px", borderBottom: tab === "upload" ? "2px solid dodgerblue" : "2px solid transparent" }}
               >
                 Upload files
               </button>
               <button
+                type="button"
                 onClick={() => setTab("library")}
-                style={{ padding: "6px 10px", borderBottom: tab === "library" ? "2px solid dodgerblue" : "2px solid transparent" }}
+                style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: "6px 10px", borderBottom: tab === "library" ? "2px solid dodgerblue" : "2px solid transparent" }}
               >
                 Media Library
               </button>
@@ -184,7 +190,7 @@ export default function MediaPicker({
             {tab === "upload" ? (
               <div
                 style={{
-                  height: "100%",
+                  flex: 1,
                   border: "2px dashed #444",
                   display: "grid",
                   placeItems: "center",
@@ -194,15 +200,15 @@ export default function MediaPicker({
                 <div style={{ textAlign: "center" }}>
                   <input ref={fileRef} type="file" accept={imagesOnly ? "image/*" : undefined} hidden onChange={onUpload} />
                   <p>Drag & drop to upload or</p>
-                  <button onClick={() => fileRef.current?.click()} style={{ padding: "8px 12px" }}>
+                  <button type="button" onClick={() => fileRef.current?.click()} style={{ padding: "8px 12px", cursor: 'pointer' }}>
                     Select Files
                   </button>
                 </div>
               </div>
             ) : (
-              <>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {/* toolbar */}
-                <div style={{ display: "flex", gap: 8, paddingBottom: 10 }}>
+                <div style={{ display: "flex", gap: 8, paddingBottom: 10, flexShrink: 0 }}>
                   <input
                     placeholder="Search media…"
                     value={q}
@@ -210,7 +216,7 @@ export default function MediaPicker({
                       setQ(e.target.value);
                       setPage(1);
                     }}
-                    style={{ padding: 8, flex: 1 }}
+                    style={{ padding: 8, flex: 1, background: '#222', border: '1px solid #444', color: 'white', borderRadius: 4 }}
                   />
                   <select
                     value={perPage}
@@ -218,7 +224,7 @@ export default function MediaPicker({
                       setPerPage(Number(e.target.value));
                       setPage(1);
                     }}
-                    style={{ padding: 6 }}
+                    style={{ padding: 6, background: '#222', border: '1px solid #444', color: 'white', borderRadius: 4 }}
                   >
                     {[20, 40, 80, 120].map((n) => (
                       <option key={n} value={n}>
@@ -234,16 +240,17 @@ export default function MediaPicker({
                 ) : (
                   <div
                     style={{
-                      height: "calc(100% - 56px)",
-                      overflow: "auto",
+                      flex: 1,
+                      overflowY: "auto",
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
                       gap: 10,
                       paddingRight: 6,
                     }}
                   >
                     {items.map((m) => (
                       <button
+                        type="button"
                         key={m.ID}
                         onClick={() => setSel(m)}
                         style={{
@@ -251,7 +258,7 @@ export default function MediaPicker({
                           padding: 0,
                           background: "transparent",
                           cursor: "pointer",
-                          height: 150,
+                          height: 120,
                           overflow: "hidden",
                           borderRadius: 6,
                         }}
@@ -266,36 +273,28 @@ export default function MediaPicker({
                         )}
                       </button>
                     ))}
-                    {!items.length && <div style={{ padding: 20, opacity: 0.7 }}>No media found.</div>}
+                    {!items.length && <div style={{ padding: 20, opacity: 0.7, gridColumn: '1 / -1' }}>No media found.</div>}
                   </div>
                 )}
 
                 {/* pager */}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 8 }}>
-                  <button onClick={() => setPage(1)} disabled={page <= 1}>
-                    «
-                  </button>
-                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
-                    ‹
-                  </button>
+                <div style={{ display: "flex", justifyContent: "center", alignItems: 'center', gap: 8, paddingTop: 8, flexShrink: 0 }}>
+                  <button type="button" onClick={() => setPage(1)} disabled={page <= 1}>«</button>
+                  <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>‹</button>
                   <span style={{ opacity: 0.8 }}>
                     Page {page} / {totalPages}
                   </span>
-                  <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                    ›
-                  </button>
-                  <button onClick={() => setPage(totalPages)} disabled={page >= totalPages}>
-                    »
-                  </button>
+                  <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>›</button>
+                  <button type="button" onClick={() => setPage(totalPages)} disabled={page >= totalPages}>»</button>
                 </div>
-              </>
+              </div>
             )}
           </div>
 
           {/* right: details */}
-          <div style={{ padding: 12 }}>
+          <div style={{ padding: 12, overflowY: 'auto' }}>
             {sel ? (
-              <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "grid", gap: 10 }}>
                 <div
                   style={{
                     width: "100%",
@@ -307,18 +306,18 @@ export default function MediaPicker({
                   }}
                 >
                   {sel.post_mime_type?.startsWith("image/") ? (
-                    <img src={sel.guid} alt={sel.post_title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <img src={sel.guid} alt={sel.post_title} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                   ) : (
                     <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
                       <code>{sel.post_mime_type}</code>
                     </div>
                   )}
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  <div>Title: {sel.post_title || "(untitled)"}</div>
-                  <div>Type: {sel.post_mime_type}</div>
-                  <div>Uploaded: {sel.post_date}</div>
-                  <div style={{ wordBreak: "break-all" }}>URL: {sel.guid}</div>
+                <div style={{ fontSize: 12, opacity: 0.8, display: 'grid', gap: 4 }}>
+                  <strong>{sel.post_title || "(untitled)"}</strong>
+                  <span>{new Date(sel.post_date).toLocaleString()}</span>
+                  <span style={{ textTransform: 'uppercase' }}>{sel.post_mime_type}</span>
+                  <div style={{ wordBreak: "break-all", opacity: 0.7 }}>{sel.guid}</div>
                 </div>
               </div>
             ) : (
@@ -328,12 +327,22 @@ export default function MediaPicker({
         </div>
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "0 14px", borderTop: "1px solid #222" }}>
-          <button onClick={onClose}>Cancel</button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            padding: "0 14px",
+            borderTop: "1px solid #222",
+          }}
+        >
+          <button type="button" onClick={onClose} style={{ padding: "8px 14px", cursor: 'pointer' }}>Cancel</button>
           <button
+            type="button"
             onClick={() => sel && onSelect(sel)}
             disabled={!sel}
-            style={{ padding: "8px 14px", background: "dodgerblue", color: "white", borderRadius: 6 }}
+            style={{ padding: "8px 14px", background: "dodgerblue", color: "white", borderRadius: 6, border: 'none', cursor: 'pointer' }}
           >
             Select
           </button>
