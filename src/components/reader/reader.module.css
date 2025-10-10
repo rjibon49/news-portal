@@ -1,0 +1,55 @@
+/* বেস: 1 কলাম (মোবাইল) */
+.wrap {
+  --colL: 0%;
+  --colC: 100%;
+  --colR: 0%;
+  display: grid;
+  grid-template-columns: var(--colL) var(--colC) var(--colR);
+  gap: 24px;
+  align-items: start;
+}
+
+/* md: ~768px— 20 / 60 / 20 */
+@media (min-width: 768px) {
+  .wrap {
+    --colL: 20%;
+    --colC: 60%;
+    --colR: 20%;
+  }
+}
+
+/* lg: ~1024px— 25 / 50 / 25 */
+@media (min-width: 1024px) {
+  .wrap {
+    --colL: 25%;
+    --colC: 50%;
+    --colR: 25%;
+  }
+}
+
+/* xl: ~1280px— 30 / 40 / 30 */
+@media (min-width: 1280px) {
+  .wrap {
+    --colL: 20%;
+    --colC: 60%;
+    --colR: 20%;
+  }
+}
+
+.left,
+.center,
+.right {
+  min-width: 0; /* overflow layout issues রোধে */
+}
+
+/* চাইলে ভবিষ্যতে সাইডবারে কার্ড ইত্যাদি দিলে padding ব্যবহার করতে পারো */
+.left,
+.right {
+  /* padding: 8px; */
+}
+
+.center {
+  /* article area look */
+  display: grid;
+  gap: 24px;
+}

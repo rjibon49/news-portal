@@ -14,13 +14,7 @@ import { slugify } from "@/lib/slugify";
 import { useAutoDraft } from "@/lib/hooks/useAutoDraft";
 import styles from "./newPost.module.css";
 
-/**
- * New Post (Bangladesh time aware)
- * - Admin/Editor can publish/schedule.
- * - Author/Contributor/Subscriber can only submit for review (pending).
- */
-
-/* -------------------- Types -------------------- */
+/** ---------------- Types ---------------- */
 type Category = {
   term_taxonomy_id: number;
   term_id: number;
@@ -41,21 +35,28 @@ type CreatePostPayload = {
   categoryTtxIds: number[];
   tagNames: string[];
   featuredImageId?: number;
+
   // EXTRA
   subtitle?: string;
   highlight?: string;
   format?: "standard" | "gallery" | "video";
   gallery?: Array<number | { id: number; url?: string }>;
   videoEmbed?: string;
+
   // schedule
-  scheduledAt?: string; // ISO (UTC)
+  scheduledAt?: string;
+
   // admin override
   authorId?: number;
 };
 
-type MeInfo = { id: number; role: "administrator" | "editor" | "author" | "contributor" | "subscriber"; canPublishNow?: boolean };
+type MeInfo = {
+  id: number;
+  role: "administrator" | "editor" | "author" | "contributor" | "subscriber";
+  canPublishNow?: boolean;
+};
 
-/* -------------------- Helpers -------------------- */
+/** --------------- Helpers --------------- */
 async function fetchJson<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: "no-store" });
   const j = await r.json().catch(() => ({}));
@@ -63,7 +64,6 @@ async function fetchJson<T>(url: string): Promise<T> {
   return j as T;
 }
 
-// BD display for datetime-local
 function formatBDDisplay(dateString: string) {
   if (!dateString) return "";
   try {
@@ -138,7 +138,7 @@ export default function NewPostPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // compute publish permission (local rule): only admin/editor can publish
+  // compute publish permission (local rule)
   const canPublishNow = useMemo(
     () => (me?.role === "administrator" || me?.role === "editor") ?? false,
     [me]
@@ -263,21 +263,33 @@ export default function NewPostPage() {
     return j as { id: number; slug: string; status: string };
   }
 
+  async function patchPost(id: number, payload: Partial<CreatePostPayload>) {
+    const res = await fetch(`/api/r2/posts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((j as any)?.error || "Save failed");
+    return j;
+  }
+
   /* -------------------- Submit actions -------------------- */
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     await onSaveDraft();
   }
 
+  // ✅ Draft always PATCH the existing row (create once via ensureId)
   async function onSaveDraft() {
     if (!title.trim()) return toast.error("Title is required");
-
     setSaving(true);
     try {
+      const id = await ensureId();                // ← from hook
       const payload = buildPayload("draft");
-      const j = await createPost(payload);
+      await patchPost(id, payload);               // PATCH not POST
       toast.success("Saved as draft");
-      router.push(`/dashboard/posts/${j.id}/edit`);
+      router.push(`/dashboard/posts/${id}/edit`);
     } catch (e: any) {
       toast.error(e.message || "Failed to save draft");
     } finally {
@@ -285,6 +297,7 @@ export default function NewPostPage() {
     }
   }
 
+  // ✅ Publish/Submit also PATCH same row — no duplicates
   async function onPrimaryAction() {
     if (!title.trim()) return toast.error("Title is required");
     if (canPublishNow && !content.trim()) {
@@ -293,19 +306,16 @@ export default function NewPostPage() {
 
     setSaving(true);
     try {
-      // Only admin/editor can publish; others submit pending.
-      const forced: "publish" | "pending" =
-        canPublishNow ? "publish" : "pending";
-
+      const id = await ensureId(); // make sure we have a row
+      const forced: "publish" | "pending" = canPublishNow ? "publish" : "pending";
       const payload = buildPayload(forced);
 
-      // If user cannot publish, ensure schedule is ignored
       if (!canPublishNow) {
         delete payload.scheduledAt;
         payload.status = "pending";
       }
 
-      const j = await createPost(payload);
+      await patchPost(id, payload);
 
       if (!canPublishNow) {
         toast.success("Submitted for review");
@@ -382,10 +392,7 @@ export default function NewPostPage() {
     }
   };
 
-  /* -------------------- AUTOSAVE (NEW) --------------------
-   * Hook (useAutoDraft) has default ~25s debounce.
-   * It won't trigger until payload has something (hasTyped).
-   */
+  /* -------------------- AUTOSAVE (NEW) -------------------- */
   const hasTyped =
     !!title.trim() ||
     !!content.trim() ||
@@ -395,23 +402,25 @@ export default function NewPostPage() {
     (tagNames && tagNames.length > 0) ||
     (gallery && gallery.length > 0);
 
-  const { state: autoState, lastSavedAt } = useAutoDraft({
+  const {
+    state: autoState,
+    lastSavedAt,
+    ensureId,                     // ⬅️ use this in Save/Publish
+  } = useAutoDraft({
     mode: "new",
     storageKey: "autosave:new-post",
     buildPayload: () => buildPayload("draft"),
     createDraft: async (payload) => {
-      const j = await createPost(payload); // POST
-      return { id: j.id }; // hook will keep server id internally
+      const j = await createPost(payload); // POST once
+      return { id: j.id };
     },
     updateDraft: async (id, payload) => {
-      // subsequent autosaves → PATCH as draft
       await fetch(`/api/r2/posts/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, status: "draft" }),
       });
     },
-    // Anything that should trigger an autosave when changed:
     deps: [
       hasTyped,
       title,
@@ -724,7 +733,10 @@ export default function NewPostPage() {
                       checked={selectedCats.includes(opt.id)}
                       onChange={(e) => toggleCat(opt.id, e.target.checked)}
                     />
-                    <span className={styles.catLabel} style={{ paddingLeft: Math.min(opt.depth * 12, 48) }} >
+                    <span
+                      className={styles.catLabel}
+                      style={{ paddingLeft: Math.min(opt.depth * 12, 48) }}
+                    >
                       {opt.label}
                     </span>
                   </label>
@@ -783,7 +795,7 @@ export default function NewPostPage() {
                       <button
                         type="button"
                         className={`btn-ghost ${styles.dangerGhost}`}
-                        onClick={() => (window as any).confirm && (/* no-op for type */ 0)}
+                        onClick={() => setFeatured(null)}
                       >
                         Remove
                       </button>
@@ -807,7 +819,25 @@ export default function NewPostPage() {
           </aside>
         </div>
 
-        {/* Pickers */} <MediaPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={(m) => { setFeatured({ id: m.ID, url: m.guid }); setPickerOpen(false); }} imagesOnly /> <MediaPicker open={galleryPickerOpen} onClose={() => setGalleryPickerOpen(false)} onSelect={(m) => { setGallery((prev) => [...prev, { id: m.ID, url: m.guid }]); setGalleryPickerOpen(false); }} imagesOnly />
+        {/* Pickers */}
+        <MediaPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(m) => {
+            setFeatured({ id: m.ID, url: m.guid });
+            setPickerOpen(false);
+          }}
+          imagesOnly
+        />
+        <MediaPicker
+          open={galleryPickerOpen}
+          onClose={() => setGalleryPickerOpen(false)}
+          onSelect={(m) => {
+            setGallery((prev) => [...prev, { id: m.ID, url: m.guid }]);
+            setGalleryPickerOpen(false);
+          }}
+          imagesOnly
+        />
       </form>
     </div>
   );

@@ -1,0 +1,4 @@
+.search{display:flex;align-items:center;gap:6px;min-width:220px;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:9999px;padding:6px 8px; color: #0b1e4a;}
+.input{flex:1 1 auto;min-width:0;background:transparent;border:0;outline:none;font-size:14px; color: #0b1e4a;}
+.btn{display:grid;place-items:center;width:30px;height:30px;border-radius:9999px;border:0;background:#0b1e4a;color:#fff;cursor:pointer}
+.btn:hover{opacity:.9}

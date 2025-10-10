@@ -1,4 +1,4 @@
-// src/types/wp.ts
+// src/types/database.ts
 
 /** Core WP tables --------------------------------------------------------- */
 

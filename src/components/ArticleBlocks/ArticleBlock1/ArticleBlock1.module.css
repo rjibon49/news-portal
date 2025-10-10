@@ -1,0 +1,269 @@
+/* =========================================================
+   Article Block (Light / Dark via CSS variables)
+   - Light defaults in :root
+   - Dark theme via [data-theme="dark"]
+   - Auto fallback: prefers-color-scheme: dark (when no data-theme)
+   ========================================================= */
+
+
+/* ====== Block wrapper & heading ====== */
+.block {
+  margin: 2rem 0;
+  color: var(--c-text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", "Liberation Sans", sans-serif;
+}
+
+.heading {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid var(--c-heading-border);
+  padding-bottom: 0.5rem;
+}
+
+/* ====== Layout grid (lead + list) ====== */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;              /* mobile-first */
+  grid-template-areas:
+    "lead"
+    "list";
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.lead {
+  grid-area: lead;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-card-bg);
+  border: 1px solid var(--c-card-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.list { grid-area: list; list-style: none; padding: 0; margin: 0; }
+
+/* ====== Lead (left) ====== */
+.leadMedia {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--c-thumb-bg);
+}
+
+@supports not (aspect-ratio: 16/9) {
+  .leadMedia { padding-top: 56.25%; }
+}
+
+.leadBody { padding: 0.75rem 0; }
+
+.pill {
+  display: inline-block;
+  background: var(--c-pill-bg);
+  color: var(--c-pill-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 3px;
+}
+
+.leadTitle {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--c-text);
+  margin-bottom: 0.5rem;
+  text-decoration: none;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+.leadTitle:hover,
+.itemLink:focus .itemTitle,
+.leadTitle:focus {
+  text-decoration: none;
+}
+
+/* highlight badge (lead) */
+.highlight {
+  display: inline-block;
+  background: var(--c-highlight-bg);
+  color: var(--c-highlight-text);
+  font-size: .75rem;
+  font-weight: 700;
+  padding: .2rem .5rem;
+  border-radius: 6px;
+  margin: 0 0 .4rem 0;
+}
+
+/* subtitle (lead) */
+.subtitle {
+  color: var(--c-subtitle);
+  font-size: .95rem;
+  margin: .25rem 0 .5rem;
+  line-height: 1.5;
+}
+
+/* list item subtitle (optional) */
+.itemSubtitle {
+  display: block;
+  color: var(--c-item-subtitle);
+  font-size: .8rem;
+  margin-top: .1rem;
+}
+
+.leadExcerpt {
+  color: var(--c-excerpt);
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.date {
+  font-size: 0.8rem;
+  color: var(--c-date);
+}
+
+/* ====== List (right) ====== */
+.listItem { margin-bottom: 1rem; }
+
+.itemLink {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  outline: none;
+}
+
+.itemLink:focus-visible {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: 6px;
+}
+
+.img {
+  position: relative;   /* keep relative so Image fill uses this box */
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* default (phones/tablets) */
+.thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 100px;          /* was 80px */
+  height: 75px;          /* 4:3 (was 51px) */
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--c-thumb-bg);
+}
+
+.meta { flex: 1; min-width: 0; }
+
+.pillSmall {
+  display: inline-block;
+  background: var(--c-pillSmall-bg);
+  color: var(--c-pillSmall-text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  margin-bottom: 0.25rem;
+  border-radius: 3px;
+}
+
+.itemTitle {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+.itemDate {
+  font-size: 0.8rem;
+  color: var(--c-date);
+}
+
+.chevron {
+  font-size: 1.1rem;
+  color: var(--c-chevron);
+  margin-left: 0.25rem;
+}
+
+/* ====== Centered play/gallery overlays (no autoplay) ====== */
+.centerOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none; /* overlay doesn't block clicks */
+}
+
+.centerBubble {
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  background: var(--overlay-bubble-bg);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,.25);
+  transform: scale(1);
+  transition: transform 160ms ease-out, background 160ms ease-out;
+  z-index: 2;
+}
+
+.centerIcon {
+  width: 26px;
+  height: 26px;
+  fill: #fff;
+  transform: translateX(1px); /* optical center for play triangle */
+}
+
+.leadMedia:hover .centerBubble,
+.thumb:hover .centerBubble {
+  transform: scale(1.06);
+  background: var(--overlay-bubble-bg-hover);
+}
+
+/* ====== Responsive ====== */
+@media (max-width: 479.98px) {
+  .heading { font-size: 1.25rem; }
+  .leadTitle { font-size: 1.05rem; }
+  .leadBody { padding: 0.6rem 0; }
+  .thumb { width: 60px; height: 45px; }
+}
+
+@media (min-width: 480px) and (max-width: 767.98px) {
+  .leadTitle { font-size: 1.2rem; }
+  .thumb { width: 72px; height: 54px; }
+}
+
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;      /* 50% / 50% */
+    grid-template-areas: "lead list";
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid { gap: 1.75rem; }
+  .thumb { width: 120px; height: 80px; } /* larger thumbs on wide screens */
+}
+
+@media (min-width: 1440px) {
+  .grid { gap: 2rem; }
+}
+
+/* ====== Motion ====== */
+@media (prefers-reduced-motion: reduce) {
+  .leadTitle, .itemLink, .thumb { transition: none !important; }
+  .centerBubble { transition: none !important; }
+}

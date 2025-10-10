@@ -7,15 +7,13 @@ import { toast } from "react-toastify";
 import TinyEditor from "@/components/rich/TinyEditor";
 import MediaPicker from "@/components/media/MediaPicker";
 import TagPicker from "@/components/post-editor/TagPicker";
+import AuthorPicker, { type AuthorLite } from "@/components/post-editor/AuthorPicker";
 import { slugify } from "@/lib/slugify";
-import { useAutoDraft } from "@/lib/hooks/useAutoDraft";
 
 /**
  * Edit Post (Bangladesh time aware)
- * ------------------------------------------------------------------
- * - Server returns `scheduledAt` in BD local "YYYY-MM-DDTHH:mm" (friendly for input[type=datetime-local]).
- * - When sending schedule, we convert to ISO(UTC). Server converts back to BD via repo utils.
- * - If schedule toggle is OFF -> we send `scheduledAt: null` to clear schedule.
+ * - Server returns `scheduledAt` in BD local "YYYY-MM-DDTHH:mm" for input[type=datetime-local].
+ * - While sending schedule, we convert to ISO(UTC).
  */
 
 type GalleryItem = { id: number; url?: string };
@@ -30,16 +28,28 @@ type Prefill = {
   categoryTtxIds: number[];
   tagNames: string[];
   featuredImageId: number | null;
-  scheduledAt: string | null; // "YYYY-MM-DDTHH:mm" in BD local (for input)
+  scheduledAt: string | null; // BD local for input
   subtitle?: string | null;
   highlight?: string | null;
   format?: "standard" | "gallery" | "video";
   gallery?: GalleryItem[] | null;
   videoEmbed?: string | null;
 
-  lastEdited?: {
-    at: string | null;
-    by: { id: number; name: string } | null;
+  // OPTIONAL: if your endpoint includes author object
+  author?: {
+    id?: number;
+    ID?: number;
+    name?: string;
+    display_name?: string;
+    username?: string;
+    user_login?: string;
+    email?: string | null;
+    user_email?: string | null;
+    avatar?: string | null;
+    avatarUrl?: string | null;
+    avatar_url?: string | null;
+    slug?: string;
+    user_nicename?: string;
   } | null;
 };
 
@@ -54,7 +64,7 @@ type Category = {
 
 type CatOption = { id: number; name: string; label: string; depth: number };
 
-type MeInfo = { id: number; role: string; canPublishNow: boolean };
+type MeInfo = { id: number; role: "administrator" | "editor" | "author" | "contributor" | "subscriber"; canPublishNow: boolean };
 
 /* ---------------------- BD time helpers ---------------------- */
 function formatBDDisplay(s: string) {
@@ -97,7 +107,7 @@ export default function EditPostPage() {
   const [cats, setCats] = useState<Category[]>([]);
   const [me, setMe] = useState<MeInfo | null>(null);
 
-  // Initial status (for conditional Publish button visibility)
+  // Initial status (to hide Publish button when already published)
   const [initialStatus, setInitialStatus] =
     useState<"publish" | "draft" | "pending" | "future">("draft");
 
@@ -110,6 +120,9 @@ export default function EditPostPage() {
   const [selectedCats, setSelectedCats] = useState<number[]>([]);
   const [tagNames, setTagNames] = useState<string[]>([]);
   const [featured, setFeatured] = useState<{ id: number; url?: string } | null>(null);
+
+  // Author (NEW)
+  const [selectedAuthor, setSelectedAuthor] = useState<AuthorLite | null>(null);
 
   // EXTRA
   const [subtitle, setSubtitle] = useState("");
@@ -125,7 +138,7 @@ export default function EditPostPage() {
 
   // Schedule
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [scheduleAt, setScheduleAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" in BD
+  const [scheduleAt, setScheduleAt] = useState<string>(""); // BD local for input
 
   const effectiveSlug = useMemo(
     () =>
@@ -140,6 +153,8 @@ export default function EditPostPage() {
     const t = new Date(scheduleAt).getTime();
     return !isNaN(t) && t > Date.now();
   }, [scheduleEnabled, scheduleAt]);
+
+  const canChangeAuthor = me?.role === "administrator" || me?.role === "editor";
 
   function makeCategoryOptions(rows: Category[]): CatOption[] {
     const byParent: Record<number, Category[]> = {};
@@ -171,18 +186,10 @@ export default function EditPostPage() {
   async function load() {
     setLoading(true);
     try {
-      // who am I
-      try {
-        const infoRes = await fetch("/api/r2/me", { cache: "no-store" });
-        if (infoRes.ok) {
-          const info: MeInfo = await infoRes.json();
-          setMe(info);
-        } else {
-          setMe(null);
-        }
-      } catch {
-        setMe(null);
-      }
+      // me
+      const meRes = await fetch("/api/r2/me", { cache: "no-store" });
+      if (meRes.ok) setMe(await meRes.json());
+      else setMe(null);
 
       // post
       const res = await fetch(`/api/r2/posts/${id}`, { cache: "no-store" });
@@ -221,8 +228,23 @@ export default function EditPostPage() {
       setGallery(Array.isArray(j.gallery) ? j.gallery : []);
       setVideoEmbed((j.videoEmbed ?? "") || "");
 
-      // Server gives BD-local input-friendly string or null
-      setScheduleEnabled(false); // off by default; user enables to change
+      // Author prefill (type-safe)
+      const a = j.author;
+      if (a && (a.id || a.ID)) {
+        const authorLite: AuthorLite = {
+          id: Number(a.id ?? a.ID),
+          name: String(a.name ?? a.display_name ?? `User #${a.id ?? a.ID}`),
+          username: String(a.username ?? a.user_login ?? `user${a.id ?? a.ID}`),
+          email: (a.email ?? a.user_email ?? null) as string | null,
+          avatar: (a.avatar ?? a.avatarUrl ?? a.avatar_url ?? null) as string | null,
+        };
+        setSelectedAuthor(authorLite);
+      } else {
+        setSelectedAuthor(null);
+      }
+
+      // schedule (server gives BD-local or null)
+      setScheduleEnabled(false);
       setScheduleAt(j.scheduledAt || "");
 
       // categories
@@ -241,15 +263,12 @@ export default function EditPostPage() {
 
   // When user toggles schedule ON and no value exists, seed with "now in BD"
   useEffect(() => {
-    if (scheduleEnabled && !scheduleAt) {
-      setScheduleAt(nowForBDInput());
-    }
+    if (scheduleEnabled && !scheduleAt) setScheduleAt(nowForBDInput());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduleEnabled]);
 
   /* ----------------------- Build payload ----------------------- */
   function buildPayload(forceStatus?: "draft" | "publish" | "pending") {
-    // Ensure clean arrays / shapes
     const cleanCats = Array.from(new Set(selectedCats)).filter(
       (x) => Number.isFinite(x) && x > 0
     ) as number[];
@@ -264,12 +283,11 @@ export default function EditPostPage() {
       title: title.trim(),
       content: content.trim(),
       excerpt: excerpt.trim(),
-      status: forceStatus || status, // server may re-evaluate if schedule is future
+      status: forceStatus || status,
       slug: effectiveSlug,
       categoryTtxIds: cleanCats,
       tagNames: cleanTags,
       featuredImageId: featured ? featured.id : null,
-      // EXTRA
       subtitle: subtitle.trim() || null,
       highlight: highlight.trim() || null,
       format,
@@ -277,23 +295,24 @@ export default function EditPostPage() {
       videoEmbed: (format === "video" ? videoEmbed.trim() : "").trim() || null,
     };
 
-    // Schedule rules:
-    // - If toggle ON → send ISO(UTC) so server can decide future vs not
-    // - If toggle OFF → send null to clear any existing schedule
+    // author override (admin/editor only)
+    if (canChangeAuthor && selectedAuthor?.id) {
+      payload.authorId = selectedAuthor.id;
+    }
+
+    // schedule
     if (scheduleEnabled && scheduleAt) {
       const d = new Date(scheduleAt);
-      if (!isNaN(d.getTime())) {
-        payload.scheduledAt = d.toISOString(); // UTC ISO
-      }
+      if (!isNaN(d.getTime())) payload.scheduledAt = d.toISOString(); // UTC ISO
     } else {
-      payload.scheduledAt = null; // clear schedule
+      payload.scheduledAt = null;
     }
 
     return payload;
   }
 
   async function save(payload: any) {
-    const res = await fetch(`/api/r2/posts/${id}`, {
+    const res = await fetch(`/api/r2/posts/${postId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -344,21 +363,15 @@ export default function EditPostPage() {
 
     setSaving(true);
     try {
-      // publish permission থাকলে publish/schedule; না থাকলে pending
       const payload = buildPayload(canPublish ? "publish" : "pending");
-
       if (!canPublish) {
-        // contributor/subscriber: schedule নিষ্ক্রিয়
         payload.scheduledAt = null;
       }
 
       await save(payload);
 
-      if (!canPublish) {
-        toast.success("Sent for review");
-      } else {
-        toast.success(scheduleEnabled && isFuture ? "Scheduled" : "Published");
-      }
+      if (!canPublish) toast.success("Sent for review");
+      else toast.success(scheduleEnabled && isFuture ? "Scheduled" : "Published");
 
       router.push("/dashboard/posts");
     } catch (e: any) {
@@ -367,52 +380,6 @@ export default function EditPostPage() {
       setSaving(false);
     }
   }
-
-  /* ----------------------- Auto-draft (NEW) ----------------------- */
-  const { state: autoState, lastSavedAt } = useAutoDraft({
-    mode: "edit",
-    buildPayload: () => buildPayload("draft"),
-    updateDraft: async (_id, payload) => {
-      const res = await fetch(`/api/r2/posts/${postId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, status: "draft" }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Autosave failed");
-      }
-    },
-    initialId: postId,
-    storageKey: `autosave:post:${postId}`,
-    debounceMs: 1500,
-    deps: [
-      title,
-      slug,
-      content,
-      excerpt,
-      subtitle,
-      highlight,
-      format,
-      videoEmbed,
-      JSON.stringify(tagNames),
-      JSON.stringify(selectedCats),
-      JSON.stringify(gallery),
-      scheduleEnabled,
-      scheduleAt,
-    ],
-  });
-
-  const autoLabel =
-    autoState === "saving"
-      ? "Saving…"
-      : autoState === "offline"
-      ? "Offline — locally saved"
-      : autoState === "error"
-      ? "Autosave failed"
-      : lastSavedAt
-      ? `Autosaved ${lastSavedAt.toLocaleTimeString()}`
-      : "";
 
   /* ----------------------- Gallery ops ----------------------- */
   const removeGalleryItem = (idx: number) => setGallery((p) => p.filter((_, i) => i !== idx));
@@ -444,7 +411,9 @@ export default function EditPostPage() {
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
           <h2>Edit Post</h2>
-          <small className="dim">{autoLabel}</small>
+          <small className="dim">
+            {/* simple live hint could be wired with your autosave if needed */}
+          </small>
         </div>
 
         <label className="label">Title *</label>
@@ -677,6 +646,24 @@ export default function EditPostPage() {
               <button type="button" className="btn" onClick={onUpdate} disabled={saving}>
                 {saving ? "Updating…" : "Update"}
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* NEW: Authors */}
+        <div className="card">
+          <div className="card-hd">Authors</div>
+          <div className="card-bd" style={{ display: "grid", gap: 8 }}>
+            <small className="dim">
+              {canChangeAuthor
+                ? "Pick a different author for this post."
+                : "You can’t change the author. Ask an editor/admin if needed."}
+            </small>
+            <div
+              aria-disabled={!canChangeAuthor}
+              style={{ opacity: canChangeAuthor ? 1 : 0.6, pointerEvents: canChangeAuthor ? "auto" : "none" }}
+            >
+              <AuthorPicker value={selectedAuthor} onChange={setSelectedAuthor} />
             </div>
           </div>
         </div>

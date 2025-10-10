@@ -1,55 +1,97 @@
 // src/app/api/r2/users/search/route.ts
 import { NextResponse } from "next/server";
-import { z, ZodError } from "zod";
-import { searchUsersRepo } from "@/db/repo/users.repo";
-import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const Q = z.object({
-  q: z.string().trim().min(1),
-  limit: z.coerce.number().int().positive().max(50).default(10),
-});
-
-function absolutize(urlStr: string | null | undefined, origin: string) {
-  if (!urlStr) return null;
-  if (/^https?:\/\//i.test(urlStr)) return urlStr;
-  if (/^[a-z]+:/i.test(urlStr)) return null;
-  const path = urlStr.startsWith("/") ? urlStr : `/${urlStr}`;
-  return `${origin}${path}`;
+function normalizeUser(u: any) {
+  const id = Number(u?.id ?? u?.ID ?? 0) || 0;
+  const username = u?.username ?? u?.user_login ?? "";
+  const display = u?.display_name ?? u?.name ?? (u?.first_name && u?.last_name ? `${u.first_name} ${u.last_name}`.trim() : username || `User #${id}`);
+  const slug = u?.slug ?? u?.user_nicename ?? username ?? String(id);
+  const avatarUrl = u?.avatarUrl ?? u?.avatar_url ?? u?.avatar ?? u?.profile_image ?? null;
+  return {
+    id, name: display, username, slug,
+    email: u?.email ?? u?.user_email ?? null,
+    avatarUrl,
+    bio: u?.bio ?? u?.description ?? "",
+  };
 }
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const origin = `${url.protocol}//${url.host}`;
-    const { q, limit } = Q.parse(Object.fromEntries(url.searchParams));
-    const rows = await searchUsersRepo(q, limit);
+    const q = (url.searchParams.get("q") || "").trim();
+    const limit = Number(url.searchParams.get("limit") || 10);
 
-    const users = rows.map((u) => {
-      const localAvatar = absolutize(u.avatar_url || null, origin);
-      const gravatar = u.email
-        ? `https://www.gravatar.com/avatar/${crypto
-            .createHash("md5")
-            .update(u.email.trim().toLowerCase())
-            .digest("hex")}?s=64&d=mp`
-        : null;
+    if (!q) return NextResponse.json({ users: [] }, { headers: { "Cache-Control": "no-store" } });
 
-      return {
-        id: u.id,
-        name: u.name,
-        username: u.username,
-        email: u.email,
-        avatar: localAvatar || gravatar,
-      };
-    });
-
-    return NextResponse.json({ users }, { headers: { "Cache-Control": "no-store" } });
+    // 👉 তোমার রিপোতে যেভাবে আছে সেভাবেই ডেটা আনো (এখানে simple wrapper ধরা হলো)
+    const res = await fetch(`${url.origin}/api/r2/users?q=${encodeURIComponent(q)}&perPage=${limit}`, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    const users = Array.isArray(data?.users) ? data.users : [];
+    return NextResponse.json({ users: users.map(normalizeUser) }, { headers: { "Cache-Control": "no-store" } });
   } catch (e: any) {
-    if (e instanceof ZodError) {
-      return NextResponse.json({ error: "Invalid query", issues: e.flatten() }, { status: 422 });
-    }
-    return NextResponse.json({ error: e?.message || "Invalid request" }, { status: 400 });
+    return NextResponse.json({ users: [] }, { status: 200 });
   }
 }
+
+
+
+
+
+// // src/app/api/r2/users/search/route.ts
+// import { NextResponse } from "next/server";
+// import { z, ZodError } from "zod";
+// import { searchUsersRepo } from "@/db/repo/users.repo";
+// import crypto from "node:crypto";
+
+// export const runtime = "nodejs";
+// export const dynamic = "force-dynamic";
+
+// const Q = z.object({
+//   q: z.string().trim().min(1),
+//   limit: z.coerce.number().int().positive().max(50).default(10),
+// });
+
+// function absolutize(urlStr: string | null | undefined, origin: string) {
+//   if (!urlStr) return null;
+//   if (/^https?:\/\//i.test(urlStr)) return urlStr;
+//   if (/^[a-z]+:/i.test(urlStr)) return null;
+//   const path = urlStr.startsWith("/") ? urlStr : `/${urlStr}`;
+//   return `${origin}${path}`;
+// }
+
+// export async function GET(req: Request) {
+//   try {
+//     const url = new URL(req.url);
+//     const origin = `${url.protocol}//${url.host}`;
+//     const { q, limit } = Q.parse(Object.fromEntries(url.searchParams));
+//     const rows = await searchUsersRepo(q, limit);
+
+//     const users = rows.map((u) => {
+//       const localAvatar = absolutize(u.avatar_url || null, origin);
+//       const gravatar = u.email
+//         ? `https://www.gravatar.com/avatar/${crypto
+//             .createHash("md5")
+//             .update(u.email.trim().toLowerCase())
+//             .digest("hex")}?s=64&d=mp`
+//         : null;
+
+//       return {
+//         id: u.id,
+//         name: u.name,
+//         username: u.username,
+//         email: u.email,
+//         avatar: localAvatar || gravatar,
+//       };
+//     });
+
+//     return NextResponse.json({ users }, { headers: { "Cache-Control": "no-store" } });
+//   } catch (e: any) {
+//     if (e instanceof ZodError) {
+//       return NextResponse.json({ error: "Invalid query", issues: e.flatten() }, { status: 422 });
+//     }
+//     return NextResponse.json({ error: e?.message || "Invalid request" }, { status: 400 });
+//   }
+// }

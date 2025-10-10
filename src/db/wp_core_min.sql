@@ -347,5 +347,110 @@ CREATE TABLE IF NOT EXISTS wp_post_view_daily (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
+/* 1) কোথায় অ্যাড বসবে: beforeTitle, beforeImage, ... */
+CREATE TABLE ad_slot (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  slot_key     VARCHAR(64) NOT NULL UNIQUE,   -- e.g. 'beforeTitle', 'afterBody'
+  label        VARCHAR(120) NOT NULL,         -- human name
+  enabled      TINYINT(1) NOT NULL DEFAULT 1, -- on/off from admin
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+/* 2) অ্যাড ক্রিয়েটিভ (image/html/script ইত্যাদি) */
+CREATE TABLE ad_creative (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name          VARCHAR(120) NOT NULL,              -- internal name
+  type          ENUM('image','html','script') NOT NULL DEFAULT 'html',
+  html          MEDIUMTEXT NULL,                    -- for 'html'/'script' types
+  image_url     VARCHAR(1024) NULL,                 -- for 'image'
+  click_url     VARCHAR(1024) NULL,                 -- target when clicked
+  target_blank  TINYINT(1) NOT NULL DEFAULT 1,
+  weight        INT NOT NULL DEFAULT 1,             -- rotation weight
+  active_from   DATETIME NULL,
+  active_to     DATETIME NULL,
+  is_active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+/* 3) কোন slot-এ কোন creative যাবে + optional date window */
+CREATE TABLE ad_placement (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  slot_id       INT UNSIGNED NOT NULL,
+  creative_id   INT UNSIGNED NOT NULL,
+  weight        INT NOT NULL DEFAULT 1,            -- override or add to creative.weight
+  active_from   DATETIME NULL,
+  active_to     DATETIME NULL,
+  is_active     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  CONSTRAINT fk_ap_slot FOREIGN KEY (slot_id) REFERENCES ad_slot(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ap_creative FOREIGN KEY (creative_id) REFERENCES ad_creative(id) ON DELETE CASCADE,
+  INDEX idx_ap_slot_active (slot_id, is_active, active_from, active_to)
+) ENGINE=InnoDB;
+
+/* 4) র’ ইভেন্ট লগ (impression/click) — CTR এটাতেই ভিত্তি */
+CREATE TABLE ad_event (
+  id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  occurred_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  event_type    ENUM('impression','click') NOT NULL,
+  slot_id       INT UNSIGNED NOT NULL,
+  creative_id   INT UNSIGNED NOT NULL,
+
+  /* অ্যাট্রিবিউশন/ডিডাপের কাজে লাগে */
+  page_path     VARCHAR(1024) NULL,     -- /post/my-article
+  referrer      VARCHAR(1024) NULL,
+  ip_hash       BINARY(16) NULL,        -- IPv4/6 hashed (MD5/xxhash of IP) to reduce PII
+  ua_hash       BINARY(16) NULL,        -- hashed user agent
+  session_id    VARCHAR(64) NULL,       -- client-side session key (cookie/localStorage)
+  dedupe_key    CHAR(40) NULL,          -- sha1(slot|creative|session|minute|type)
+  user_id       INT UNSIGNED NULL,      -- if logged-in
+
+  CONSTRAINT fk_ae_slot FOREIGN KEY (slot_id) REFERENCES ad_slot(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_ae_creative FOREIGN KEY (creative_id) REFERENCES ad_creative(id) ON DELETE RESTRICT,
+
+  INDEX idx_event_when (occurred_at),
+  INDEX idx_event_type (event_type),
+  INDEX idx_event_creative_when (creative_id, occurred_at),
+  INDEX idx_event_slot_when (slot_id, occurred_at),
+  UNIQUE KEY uq_event_dedupe (dedupe_key)         -- ১ মিনিটের উইন্ডোতে ডাবল কাউন্ট রোধ
+) ENGINE=InnoDB;
+
+/* 5) দৈনিক স্ট্যাটস (materialized) — দ্রুত রিপোর্টের জন্য */
+CREATE TABLE ad_stats_daily (
+  day           DATE NOT NULL,
+  slot_id       INT UNSIGNED NOT NULL,
+  creative_id   INT UNSIGNED NOT NULL,
+  impressions   BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  clicks        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  ctr           DECIMAL(6,4) GENERATED ALWAYS AS (
+                  CASE WHEN impressions > 0 THEN (clicks / impressions) ELSE 0 END
+                ) STORED,
+
+  PRIMARY KEY (day, slot_id, creative_id),
+  CONSTRAINT fk_asd_slot FOREIGN KEY (slot_id) REFERENCES ad_slot(id) ON DELETE CASCADE,
+  CONSTRAINT fk_asd_creative FOREIGN KEY (creative_id) REFERENCES ad_creative(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+/* 6) গ্লোবাল কনফিগ (admin টগল/keys/thresholds) */
+CREATE TABLE ad_config (
+  cfg_key     VARCHAR(64) PRIMARY KEY,
+  cfg_value   JSON NOT NULL,
+  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+/* seed: default slot keys */
+INSERT INTO ad_slot (slot_key, label, enabled) VALUES
+('beforeTitle','Before Title',1),
+('beforeImage','Before Featured Image',1),
+('afterImage','After Featured Image',1),
+('beforeBody','Before Article Body',1),
+('afterBody','After Article Body',1),
+('afterTags','After Tags',1);
+
+
+
 /* ── (optional) প্রোফাইল নেম sync করতে চাইলে:
 

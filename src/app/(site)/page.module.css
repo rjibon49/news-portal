@@ -1,0 +1,13 @@
+/* src/app/(site)/page.module.css  */
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 18px 14px 40px; }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
+.h2 { margin: 0; font-size: 1.4rem; }
+.tools { display: flex; gap: 10px; align-items: center; }
+.search { display: flex; gap: 6px; }
+.search input { padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 8px; min-width: 220px; }
+.search button { padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; cursor: pointer; }
+
+.pager { display: flex; justify-content: space-between; margin-top: 20px; }
+.pager a { text-decoration: none; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; }
+.next { margin-left: auto; }

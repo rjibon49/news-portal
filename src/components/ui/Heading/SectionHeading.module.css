@@ -1,0 +1,163 @@
+/* Base tokens via CSS variables (override from props) */
+.heading {
+  --h-color: #0b1e4a;   /* text */
+  --h-bg: #0b1e4a;      /* background (for filled styles) */
+  --h-fs: 15px;         /* font-size */
+  --h-line: #e9eaed;    /* lines/dividers */
+  --h-align: left;
+  --h-width: 100%;
+
+  width: var(--h-width);
+  display: block;
+  position: relative;
+  text-align: var(--h-align);
+  margin: 16px 0;
+  font-family: inherit;
+}
+
+.text {
+  color: var(--h-color);
+  font-size: var(--h-fs);
+  font-weight: 700;
+  line-height: 1.25;
+  display: inline-block;
+}
+
+/* ========= Variants (1..9) =========== */
+
+/* 1) Small pill tag (left) */
+.v1 .text {
+  background: var(--h-bg);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+}
+
+/* 2) Light bar (full-width, small label on light bg) */
+.v2 {
+  background: #eee;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+.v2 .text {
+  color: var(--h-color);
+  font-weight: 600;
+}
+
+/* 3) Solid bar (full-width) */
+.v3 {
+  background: var(--h-bg);
+  border-radius: 4px;
+  padding: 6px 14px;
+}
+.v3 .text { color: #fff; }
+
+/* 4) Medium pill tag (auto width) */
+.v4 .text {
+  background: var(--h-bg);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+/* 5) Title + thin divider to the right */
+.v5 {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 12px;
+}
+.v5::after {
+  content: "";
+  height: 2px;
+  background: var(--h-line);
+  display: block;
+}
+.v5 .text { font-weight: 700; }
+
+/* 6) Title + short thick underline (accent) */
+.v6 .text {
+  position: relative;
+  padding-bottom: 6px;
+}
+.v6 .text::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: calc(100% - 56px); /* short line under the start */
+  height: 3px;
+  background: var(--h-bg);
+  bottom: 0;
+  border-radius: 2px;
+}
+
+/* 7) Title with double underline (accent short + hairline full) */
+.v7 .text {
+  position: relative;
+  padding-bottom: 8px;
+}
+.v7 .text::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: calc(100% - 68px);
+  height: 3px;
+  background: var(--h-bg);
+  bottom: 0;
+  border-radius: 2px;
+}
+.v7::after {
+  content: "";
+  display: block;
+  height: 1px;
+  background: var(--h-line);
+  margin-top: 8px;
+}
+
+/* 8) Divider below (light) */
+.v8::after {
+  content: "";
+  display: block;
+  height: 4px;
+  background: var(--h-line);
+  border-radius: 2px;
+  margin-top: 10px;
+}
+
+/* 9) Hairline divider (very thin) */
+.v9::after {
+  content: "";
+  display: block;
+  height: 1px;
+  background: var(--h-line);
+  margin-top: 10px;
+  opacity: 0.9;
+}
+
+/* NEW: anchor reset so it looks like the heading */
+.link {
+  text-decoration: none;
+  color: inherit;
+  display: inline-block;
+  width: 100%;
+}
+
+/* If a variant paints a bg on .text, anchors inherit it automatically.
+   For v1/v3/v4 where text gets white color, keep inheritance: */
+.v1 .link .text,
+.v3 .link .text,
+.v4 .link .text {
+  color: #fff;
+}
+
+/* Optional: subtle focus ring for accessibility */
+.link:focus-visible {
+  outline: 2px solid var(--h-bg, currentColor);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Responsive size helpers (optional) */
+@media (min-width: 900px) {
+  .heading { margin: 18px 0; }
+}

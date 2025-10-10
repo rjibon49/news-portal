@@ -1,64 +1,100 @@
-// src/app/(site)/page.tsx
-'use client';
+import type { Metadata } from "next";
+import styles from "./page.module.css";
+import type { ListPostsResult } from "@/types/post";
+import { absoluteUrl } from "@/utils/apiBase";
+import { mapPostsToNews } from "@/components/news/mapPost";
+import ArticleBlock1 from "@/components/ArticleBlocks/ArticleBlock1/ArticleBlock1";
+import PagePager from "@/components/ui/Pagination/PagePager";
+import ArticleBlock14 from "@/components/ArticleBlocks/ArticleBlock14/ArticleBlock14";
 
-import { useState, useEffect } from 'react';
-import { useSession, signOut } from 'next-auth/react';
-import Link from 'next/link';
-import { toast } from 'react-toastify';
+export const metadata: Metadata = {
+  title: "News Portal – Home",
+  description: "Latest posts and top stories.",
+};
 
-export default function Home() {
-  const { data: session, status } = useSession();
-  const [posts, setPosts] = useState([]);
+export const dynamic = "force-dynamic";
 
-  useEffect(() => {
-    const fetchPosts = async () => {
-      try {
-        const response = await fetch('/api/r2/post');
-        if (!response.ok) {
-          throw new Error('Failed to fetch posts');
-        }
-        const data = await response.json();
-        setPosts(data);
-      } catch (error) {
-        toast.error('Failed to load posts');
-      }
-    };
-    fetchPosts();
-  }, []);
+async function fetchPosts(sp: Record<string, string | string[] | undefined>) {
+  const page = Number(sp.page ?? 1) || 1;
+  const q = typeof sp.q === "string" ? sp.q : "";
 
-  if (status === 'loading') {
-    return <div className="container">Loading...</div>;
-  }
+  const qs = new URLSearchParams({
+    status: "publish",
+    page: String(page),
+    perPage: "12",
+    ...(q ? { q } : {}),
+  });
+
+  const url = await absoluteUrl(`/api/r2/posts?${qs.toString()}`);
+  const res = await fetch(url, { next: { revalidate: 0 }, cache: "no-store" });
+  if (!res.ok) return { rows: [], total: 0, page, perPage: 12 } as ListPostsResult;
+  return (await res.json()) as ListPostsResult;
+}
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const sp = await searchParams;
+  const result = await fetchPosts(sp);
+  const totalPages = Math.max(1, Math.ceil(result.total / result.perPage));
+
+  const news = mapPostsToNews(result.rows);
 
   return (
-    <div className="container">
-      <nav className="navbar">
-        <Link href="/">Home</Link>
-        {session ? (
-          <>
-            <Link href="/dashboard">Dashboard</Link>
-            <button
-              className="btn"
-              onClick={() => signOut({ callbackUrl: '/' })}
-              style={{ display: 'inline-block', margin: '0 15px' }}
-            >
-              Sign Out
-            </button>
-          </>
-        ) : (
-          <Link href="/auth/signin">Sign In</Link>
-        )}
-      </nav>
-      <h1>News Portal</h1>
-      <div>
-        {posts.map((post: any) => (
-          <div key={post.ID} style={{ margin: '20px 0', padding: '10px', border: '1px solid #ccc' }}>
-            <h2>{post.post_title}</h2>
-            <p>{post.post_excerpt || 'No excerpt available'}</p>
-            <p>By {post.author?.display_name || 'Unknown'}</p>
-          </div>
-        ))}
+    <main className={styles.wrap}>
+      <div className={styles.head}>
+        <h2 className={styles.h2}>Latest Articles</h2>
+        <div className={styles.tools}>
+          <form action="/" className={styles.search}>
+            <input
+              name="q"
+              placeholder="Search articles..."
+              defaultValue={typeof sp.q === "string" ? sp.q : ""}
+            />
+            <button type="submit">Search</button>
+          </form>
+        </div>
       </div>
-    </div>
+
+      {news.length === 0 ? (
+        <p>No articles found.</p>
+      ) : (
+        <>
+          <ArticleBlock1
+            title="সর্বশেষ খবর"
+            items={news}
+            listCount={4}
+            showExcerpt={false}
+            fallbackImage="/placeholder.jpg"
+            headingVariant={6}
+            headingBg="#0b1e4a"
+            headingColor="#0b1e4a"
+            showDates={false}
+            showCategory={false}
+          />
+
+          <PagePager
+            currentPage={result.page}
+            totalPages={totalPages}
+            mode="numbers"
+            className={styles.pager}
+          />
+          <ArticleBlock14
+            title="টপ স্টোরিজ"
+            items={news}
+            listCount={4}
+            showDates
+            relativeDates
+            showExcerpt
+            maxExcerptWords={24}
+            headingVariant={6}
+            headingBg="#0b1e4a"
+            headingColor="#0b1e4a"
+          />
+        </>
+      )}
+    </main>
   );
 }

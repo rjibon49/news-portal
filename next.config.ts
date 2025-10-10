@@ -1,36 +1,35 @@
 // src/next.config.ts  (root: next.config.ts)
+
+// next.config.ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* ------------ Images ------------- */
   images: {
-    // ✅ সহজ সমাধান: যেকোনো external src কাজ করবে (Image অপ্টিমাইজার অফ)
-    //    ড্যাশবোর্ড অ্যাভাটার/লাইব্রেরির জন্য যথেষ্ট।
+    // External images allowlist না লাগলে সহজ সমাধান:
     unoptimized: true,
 
-    // ⬇️ (ঐচ্ছিক) প্রডাকশনে অপ্টিমাইজার চালাতে চাইলে উপরের লাইনটি মুছে ফেলে
-    // নিচের remotePatterns/domains আনকমেন্ট করে সঠিক ডোমেইন বসাও।
+    // চাইলে later: remotePatterns/domains ব্যবহার করতে পারো
     // remotePatterns: [
-    //   // তোমার সাইট/সিডিএন
     //   { protocol: "https", hostname: "cdn.yoursite.com" },
     //   { protocol: "https", hostname: "assets.yoursite.com" },
-    //   // Gravatar ফলোব্যাক
     //   { protocol: "https", hostname: "www.gravatar.com" },
     //   { protocol: "https", hostname: "secure.gravatar.com" },
     //   { protocol: "https", hostname: "gravatar.com" },
     // ],
-    // domains: ["localhost", "127.0.0.1"], // যদি domains ব্যবহার করো
+    // domains: ["localhost", "127.0.0.1"],
   },
 
   /* --------- Experimental ---------- */
   experimental: {
-    // App Router route handler-এ বড় ফাইল আপলোড (multipart/form-data)
-    serverActions: {
-      bodySizeLimit: "25mb",
-    },
-    // server-side bundle-এ native deps রাখা (mysql2, sharp ইত্যাদি)
-    serverComponentsExternalPackages: ["mysql2", "sharp"],
+    // App Router route handler-এ বড় ফাইল আপলোড
+    serverActions: { bodySizeLimit: "25mb" },
   },
+
+  /* -------- Keep native deps in the server bundle (Next 15) -------- */
+  // ⬇️ গুরুত্বপূর্ণ: আগের `experimental.serverComponentsExternalPackages`
+  // এখন আর কাজ করে না। টপ-লেভেলে `serverExternalPackages` ব্যবহার করো।
+  serverExternalPackages: ["mysql2", "sharp"],
 
   /* ------------- Webpack ------------ */
   webpack: (config) => {
@@ -47,6 +46,10 @@ const nextConfig: NextConfig = {
 
   // (ঐচ্ছিক) Docker/Serverless ডিপ্লয়ের জন্য
   // output: "standalone",
+
+  // (ঐচ্ছিক) যদি “multiple lockfiles detected” ওয়ার্নিং দেখায়:
+  // outputFileTracingRoot: process.cwd(),
 };
 
 export default nextConfig;
+

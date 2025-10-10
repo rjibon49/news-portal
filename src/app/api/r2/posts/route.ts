@@ -20,6 +20,21 @@ import { query } from "@/db/mysql";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/* ----------------------------- helpers ----------------------------- */
+function json(data: any, init?: ResponseInit) {
+  // সব রেসপন্সে CORS/No-store — ড্যাশবোর্ডের জন্য কমফোর্টেবল
+  const base = {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  } as ResponseInit;
+  return NextResponse.json(data, { ...base, ...init, headers: { ...base.headers, ...(init?.headers || {}) } });
+}
+
 // -----------------------------------------------------------------------------
 // [Schema] GET query validation
 // -----------------------------------------------------------------------------
@@ -34,8 +49,8 @@ const ListQuery = z.object({
   perPage: z.coerce.number().int().positive().max(100).default(20),
   orderBy: z.enum(["date", "title"]).default("date"),
   order: z.enum(["asc", "desc"]).default("desc"),
-  // NOTE: repo এখন format ফিল্টার নেয় না; রাখা হলো future use-এর জন্য
-  format: z.string().optional(),
+  format: z.string().optional(), // (reserved)
+  slug: z.string().optional(),   // allow exact slug match
 });
 
 // -----------------------------------------------------------------------------
@@ -44,8 +59,8 @@ const ListQuery = z.object({
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
+    // Object.fromEntries(...) দিলে multi-value ড্রপ হয়—এখানে আমাদের দরকার নেই
     const rawParams = Object.fromEntries(url.searchParams);
-
     const q = ListQuery.parse(rawParams);
 
     const result = await listPostsRepo({
@@ -59,31 +74,20 @@ export async function GET(req: Request) {
       perPage: q.perPage,
       orderBy: q.orderBy,
       order: q.order,
-      // format: q.format, // enable in repo when needed
+      slug: q.slug,
+      // format: q.format,
     });
 
-    return NextResponse.json(result, {
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        Pragma: "no-cache",
-      },
-    });
+    return json(result);
   } catch (e: any) {
     if (e instanceof ZodError) {
-      return NextResponse.json(
-        {
-          error: "Validation failed",
-          issues: e.flatten(),
-          message: "Invalid query parameters",
-        },
+      return json(
+        { error: "Validation failed", issues: e.flatten(), message: "Invalid query parameters" },
         { status: 422 }
       );
     }
-    return NextResponse.json(
-      {
-        error: e?.message || "Bad request",
-        message: "Failed to fetch posts",
-      },
+    return json(
+      { error: e?.message || "Bad request", message: "Failed to fetch posts" },
       { status: 400 }
     );
   }
@@ -99,75 +103,69 @@ const DatetimeLocalOrISO = z
     z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
   ])
   .refine((val) => {
-    try {
-      const d = new Date(val);
-      return !isNaN(d.getTime());
-    } catch {
-      return false;
-    }
-  }, { message: "Invalid date format. Use ISO format or datetime-local" });
+    try { return !Number.isNaN(new Date(val).getTime()); } catch { return false; }
+  }, { message: "Invalid date format. Use ISO or datetime-local" });
 
 const GalleryItemSchema = z.object({
   id: z.coerce.number().int().positive(),
   url: z.string().optional(),
 });
 
-const CreateSchema = z
-  .object({
-    title: z.string().min(1).max(200).trim(),
-    content: z.string().default(""),
-    excerpt: z.string().optional().default(""),
-    status: z.enum(["publish", "draft", "pending", "future"]).optional().default("draft"),
-    slug: z.string().optional(),
+const CreateSchema = z.object({
+  title: z.string().min(1).max(200).trim(),
+  content: z.string().default(""),
+  excerpt: z.string().optional().default(""),
+  status: z.enum(["publish", "draft", "pending", "future"]).optional().default("draft"),
+  slug: z.string().optional(),
 
-    // NaN/""/null-safe parsing
-    categoryTtxIds: z.array(z.coerce.number().int().positive()).optional().default([]),
-    tagNames: z.array(z.string().min(1)).optional().default([]),
-    featuredImageId: z.coerce.number().int().positive().optional(),
+  categoryTtxIds: z.array(z.coerce.number().int().positive()).optional().default([]),
+  tagNames: z.array(z.string().min(1)).optional().default([]),
+  featuredImageId: z.coerce.number().int().positive().optional(),
 
-    // (ঐচ্ছিক) Admin হলে author override করা যাবে
-    authorId: z.coerce.number().int().positive().optional(),
+  authorId: z.coerce.number().int().positive().optional(),
 
-    // --- EXTRA
-    subtitle: z.string().optional().default(""),
-    highlight: z.string().optional().default(""),
-    format: z.enum(["standard", "gallery", "video"]).optional().default("standard"),
-    gallery: z
-      .array(z.union([z.coerce.number().int().positive(), GalleryItemSchema]))
-      .optional()
-      .default([]),
-    videoEmbed: z.string().optional().default(""),
+  // EXTRA
+  subtitle: z.string().optional().default(""),
+  highlight: z.string().optional().default(""),
+  format: z.enum(["standard", "gallery", "video"]).optional().default("standard"),
+  gallery: z.array(z.union([z.coerce.number().int().positive(), GalleryItemSchema])).optional().default([]),
+  videoEmbed: z.string().optional().default(""),
 
-    // --- Schedule
-    scheduledAt: DatetimeLocalOrISO.optional(),
-  })
-  .refine(
-    (data) => !(data.format === "video" && !data.videoEmbed?.trim()),
-    { message: "Video embed code is required for video format", path: ["videoEmbed"] }
-  );
+  // Schedule
+  scheduledAt: DatetimeLocalOrISO.optional(),
+}).refine((data) => !(data.format === "video" && !data.videoEmbed?.trim()), {
+  message: "Video embed code is required for video format",
+  path: ["videoEmbed"],
+});
 
 // -----------------------------------------------------------------------------
 // POST /api/r2/posts
 // -----------------------------------------------------------------------------
 export async function POST(req: Request) {
   try {
+    /* ── AuthN ─────────────────────────────────────────────────────────── */
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     const sessionUid = Number((session as any)?.user?.id || 0);
-    if (!sessionUid) return NextResponse.json({ error: "Invalid user session" }, { status: 401 });
+    if (!session || !sessionUid) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    /* ── Body ──────────────────────────────────────────────────────────── */
     let raw: any;
     try {
       raw = await req.json();
     } catch {
-      return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
     }
 
-    if (!raw.title || !String(raw.title).trim()) {
+    if (!raw?.title || !String(raw.title).trim()) {
       return NextResponse.json({ error: "Title is required" }, { status: 422 });
     }
 
+    /* ── Parse/normalize (Zod) ─────────────────────────────────────────── */
     let data: z.infer<typeof CreateSchema>;
     try {
       data = CreateSchema.parse({
@@ -176,10 +174,12 @@ export async function POST(req: Request) {
         content: raw.content ?? "",
         excerpt: raw.excerpt ?? "",
         categoryTtxIds: Array.isArray(raw.categoryTtxIds)
-          ? raw.categoryTtxIds.map((id: any) => Number(id)).filter((n: number) => n > 0)
+          ? raw.categoryTtxIds
+              .map((id: any) => Number(id))
+              .filter((n: number) => Number.isFinite(n) && n > 0)
           : [],
         tagNames: Array.isArray(raw.tagNames)
-          ? raw.tagNames.filter((tag: string) => tag && tag.trim())
+          ? raw.tagNames.map((t: any) => String(t)).filter((t: string) => t.trim())
           : [],
         featuredImageId: raw.featuredImageId ? Number(raw.featuredImageId) : undefined,
         authorId: raw.authorId ? Number(raw.authorId) : undefined,
@@ -190,53 +190,60 @@ export async function POST(req: Request) {
         videoEmbed: raw.videoEmbed ?? "",
         scheduledAt: raw.scheduledAt,
       });
-    } catch (zodError) {
-      if (zodError instanceof ZodError) {
+    } catch (err) {
+      if (err instanceof ZodError) {
         return NextResponse.json(
-          {
-            error: "Validation failed",
-            issues: zodError.flatten(),
-            message: "Invalid input data",
-          },
+          { error: "Validation failed", issues: err.flatten(), message: "Invalid input data" },
           { status: 422 }
         );
       }
       return NextResponse.json({ error: "Invalid input" }, { status: 422 });
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // AuthZ + Role policy
-    // ─────────────────────────────────────────────────────────────
-    const admin = await isAdmin(sessionUid);
+    /* ── DB connectivity warm-up (prevents cryptic “reading 'connection'”) ─ */
+    try {
+      await query("SELECT 1");
+    } catch (dbErr) {
+      console.error("[posts.create] DB check failed:", dbErr);
+      return NextResponse.json(
+        { error: "Database connection failed. Check DB env/instance." },
+        { status: 500 }
+      );
+    }
 
-    // Admin হলে authorId override করতে পারে; নাহলে নিজেরটিই
+    /* ── AuthZ + Role policy ───────────────────────────────────────────── */
+    const admin = await isAdmin(sessionUid);
     const effectiveAuthorId = admin && data.authorId ? data.authorId : sessionUid;
 
-    // WP role resolve (session user অনুযায়ী — কে ক্লিক করল সেটাই ম্যাটার করে)
+    // Resolve WP role for the *session* user
     const meta = await query<{ meta_value: string }>(
-      `SELECT meta_value 
-         FROM wp_usermeta 
-        WHERE user_id=? AND meta_key LIKE '%capabilities' 
+      `SELECT meta_value
+         FROM wp_usermeta
+        WHERE user_id=? AND meta_key LIKE '%capabilities'
         LIMIT 1`,
       [sessionUid]
-    );
-    const caps = meta[0]?.meta_value?.toLowerCase() || "";
+    ).catch(() => []);
+    const caps = meta?.[0]?.meta_value?.toLowerCase() || "";
     const role =
       caps.includes("administrator") ? "administrator" :
       caps.includes("editor")        ? "editor" :
       caps.includes("author")        ? "author" :
       caps.includes("contributor")   ? "contributor" : "subscriber";
 
-    // Status policy:
-    // - administrator/editor/author  → UI থেকে যা এসেছে (publish/pending/draft/future)
-    // - contributor                  → সবসময় 'pending'
-    // - subscriber                   → সবসময় 'draft'
+    // Status policy
     let effectiveStatus = data.status;
     if (role === "contributor") effectiveStatus = "pending";
     else if (role === "subscriber") effectiveStatus = "draft";
 
-    // (Schedule future হলে repo ভিতরে চাইলে 'future' ঠিক করে নিতে পারে)
+    // If scheduled for future, force 'future'
+    if (data.scheduledAt) {
+      const when = new Date(data.scheduledAt);
+      if (Number.isFinite(when.getTime()) && when.getTime() > Date.now()) {
+        effectiveStatus = "future";
+      }
+    }
 
+    /* ── Create ────────────────────────────────────────────────────────── */
     const created = await createPostRepo({
       authorId: effectiveAuthorId,
       title: data.title,
@@ -255,30 +262,26 @@ export async function POST(req: Request) {
       scheduledAt: data.scheduledAt,
     });
 
-    return NextResponse.json(created, {
-      status: 201,
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        Pragma: "no-cache",
-      },
-    });
+    return NextResponse.json(created, { status: 201 });
   } catch (e: any) {
     const msg = String(e?.message || "");
-    if (msg.includes("Duplicate entry") || msg.includes("ER_DUP_ENTRY")) {
+    console.error("[posts.create] error:", e);
+
+    if (/Duplicate entry|ER_DUP_ENTRY/i.test(msg)) {
       return NextResponse.json(
         { error: "A post with this slug already exists" },
         { status: 409 }
       );
     }
-    if (msg.includes("Foreign key constraint")) {
+    if (/Foreign key constraint|foreign key/i.test(msg)) {
       return NextResponse.json(
         { error: "Invalid author or category reference" },
         { status: 400 }
       );
     }
     return NextResponse.json(
-      { error: e?.message || "Create failed", message: "Failed to create post" },
-      { status: 400 }
+      { error: "Create failed. Please try again." },
+      { status: 500 }
     );
   }
 }

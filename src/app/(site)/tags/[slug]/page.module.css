@@ -1,0 +1,18 @@
+/* src/app/(site)/tags/[slug]/page.module.css */
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 14px 40px;
+}
+
+.title {
+  font-size: clamp(20px, 3.2vw, 28px);
+  font-weight: 800;
+  margin: 6px 0 14px;
+  color: var(--fg);
+}
+
+.pager {
+  margin-top: 16px;
+}
