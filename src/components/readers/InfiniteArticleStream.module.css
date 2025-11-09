@@ -1,0 +1,152 @@
+.articleStream {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  width: 100%;
+  margin: 0 auto;
+  max-width: 680px;
+}
+
+.articleCard {
+  background: var(--card-bg, #171b23);
+  border-radius: 12px;
+  box-shadow: 0 0 10px 0 #0002;
+  padding: 24px;
+  transition: box-shadow .15s;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 640px;
+}
+
+.articleTitle {
+  font-weight: 700;
+  font-size: 1.55rem;
+  margin-top: 0;
+  margin-bottom: 10px;
+  line-height: 1.25;
+}
+
+.metaRow {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+  color: #99a5bb;
+  font-size: 0.97rem;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.author {
+  font-weight: 500;
+}
+
+.date {
+  margin-left: auto;
+  font-size: 0.97em;
+}
+
+.featured {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  margin: 14px 0 20px 0;
+  max-height: 352px;
+  object-fit: cover;
+}
+
+.body {
+  font-size: 1.06rem;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.tagRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.tag {
+  font-size: 0.92em;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #242d3c;
+  border: 1px solid #2e3d4b;
+  color: #7fc7ff;
+}
+
+.sentinel {
+  height: 1px;
+}
+.loading,
+.noMore {
+  padding: 24px 0;
+  text-align: center;
+  color: #999;
+  font-size: 1.17em;
+}
+
+.catRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.cat {
+  font-size: 0.95em;
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: #2a3141;
+  color: #84bee6;
+  border: 1px solid #2e3d4b;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.cat:hover {
+  background: #194263;
+  color: #fff;
+  text-decoration: underline;
+}
+.tagRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.tag {
+  font-size: 0.92em;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #242d3c;
+  border: 1px solid #2e3d4b;
+  color: #7fc7ff;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.tag:hover {
+  background: #193363;
+  color: #fff;
+  text-decoration: underline;
+}
+
+
+/* Responsive: stack for small screens */
+@media (max-width: 600px) {
+  .articleStream, .articleCard {
+    padding: 6px;
+    max-width: 97vw;
+  }
+  .articleCard {
+    padding: 12px;
+  }
+  .featured {
+    max-height: 175px;
+    border-radius: 8px;
+  }
+}

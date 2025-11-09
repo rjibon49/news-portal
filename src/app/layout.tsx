@@ -5,10 +5,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Providers from "./providers";
 import "./globals.css";
 import { Bounce, ToastContainer } from "react-toastify";
-import 'react-toastify/dist/ReactToastify.css'; // global toast styles
-import dynamic from 'next/dynamic';
-import Header from "@/components/layout/Header/Header";
-import Footer from "@/components/layout/Footer/Footer";
+import "react-toastify/dist/ReactToastify.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -22,22 +19,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`} lang="en" suppressHydrationWarning>
-        <Providers> <Header />{children} <Footer /></Providers>
+        {/* ⬇️ গ্লোবাল কনটেক্সট/থিম/অথ—সবাই পাবেন */}
+        <Providers>
+          {children}
+        </Providers>
+
+        {/* ⬇️ গ্লোবাল টোস্ট — সব রুটে কাজ করবে */}
         <ToastContainer
-            position="top-right"
-            autoClose={2200}
-            hideProgressBar={false}
-            newestOnTop={false}
-            closeOnClick={false}
-            rtl={false}
-            pauseOnFocusLoss
-            draggable
-            pauseOnHover
-            theme="light"
-            transition={Bounce}
-            limit={3}
-            style={{ zIndex: 2147483000 }} // always on top
-            />
+          position="top-right"
+          autoClose={2200}
+          hideProgressBar={false}
+          newestOnTop={false}
+          closeOnClick={false}
+          rtl={false}
+          pauseOnFocusLoss
+          draggable
+          pauseOnHover
+          theme="light"
+          transition={Bounce}
+          limit={3}
+          style={{ zIndex: 2147483000 }}
+        />
       </body>
     </html>
   );

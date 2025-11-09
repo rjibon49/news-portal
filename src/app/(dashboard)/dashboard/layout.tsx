@@ -145,6 +145,22 @@ function buildNavTree(role: Role): NavNode[] {
     },
   ];
 
+  // ✅ Admin হলে “Ads” গ্রুপ দেখাও
+  if (isAdmin(role)) {
+    tree.push({
+      label: "Ads",
+      icon: faFolderTree, // চাইলে অন্য FA আইকন ব্যবহার করো
+      children: [
+        { label: "Overview", href: "/dashboard/ads", icon: faGauge },
+        { label: "Slots", href: "/dashboard/ads/slots", icon: faList },
+        { label: "Creatives", href: "/dashboard/ads/creatives", icon: faImages },
+        { label: "Placements", href: "/dashboard/ads/placements", icon: faFolderTree },
+        { label: "Reports", href: "/dashboard/ads/reports", icon: faTags },
+      ],
+      match: (p) => p.startsWith("/dashboard/ads"),
+    });
+  }
+
   // Filter by role (leafs first, then drop empty groups)
   const filterNode = (node: NavNode): NavNode | null => {
     if (node.children?.length) {

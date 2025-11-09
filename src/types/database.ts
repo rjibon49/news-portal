@@ -9,10 +9,10 @@ export interface WPUser {
   user_nicename: string;
   user_email: string;
   user_url: string;
-  user_registered: string;      // DATETIME
+  user_registered: string;      // DATETIME string
   user_activation_key: string;
   user_status: number;
-  display_name: string;         // varchar(250) in your DB
+  display_name: string;         // varchar(250)
 }
 
 export interface WPUserMeta {
@@ -34,7 +34,7 @@ export interface WPTermTaxonomy {
   term_id: number;              // FK -> wp_terms.term_id
   taxonomy: string;             // 'category' | 'post_tag' | custom
   description: string;
-  parent: number;               // bigint(20) unsigned (আপনার স্কিমা)
+  parent: number;               // bigint unsigned in DB → number here
   count: number;
 }
 
@@ -56,8 +56,8 @@ export type WPPostStatus =
 export interface WPPost {
   ID: number;
   post_author: number;
-  post_date: string;            // DATETIME (local)
-  post_date_gmt: string;        // DATETIME (UTC)
+  post_date: string;            // local DATETIME (as string)
+  post_date_gmt: string;        // UTC DATETIME (as string)
   post_content: string;
   post_title: string;
   post_excerpt: string;
@@ -114,6 +114,7 @@ export interface WPOption {
 /** Your custom tables ----------------------------------------------------- */
 
 export type PostFormat = "standard" | "gallery" | "video";
+export type AudioStatus = "none" | "queued" | "ready" | "error";
 
 export interface WPPostExtra {
   post_id: number;              // PK + FK -> wp_posts.ID
@@ -122,7 +123,15 @@ export interface WPPostExtra {
   format: PostFormat;           // enum
   gallery_json: string | null;  // LONGTEXT (JSON string)
   video_embed: string | null;   // MEDIUMTEXT
-  updated_at: string;           // TIMESTAMP
+  updated_at: string;           // TIMESTAMP (as string)
+
+  // ---- Text-to-Speech (TTS) fields ----
+  audio_status: AudioStatus;          // enum, default 'none'
+  audio_url: string | null;           // CDN/URL or NULL
+  audio_lang: string | null;          // 'en', 'bn', etc. or NULL
+  audio_chars: number | null;         // char count used to generate
+  audio_duration_sec: number | null;  // duration in seconds
+  audio_updated_at: string | null;    // TIMESTAMP (as string) or NULL
 }
 
 export interface WPPostGallery {
@@ -164,6 +173,26 @@ export type CategoryDTO = {
   name: string;
   slug: string;
   description: string;
-  parent: number;                // parent tt_id in your DB
+  parent: number;                // parent tt_id
   count: number;
 };
+
+/** Optional convenience DTOs (useful in repos) --------------------------- */
+export type PostAudioDTO = Pick<
+  WPPostExtra,
+  | "audio_status"
+  | "audio_url"
+  | "audio_lang"
+  | "audio_chars"
+  | "audio_duration_sec"
+  | "audio_updated_at"
+> & { post_id: number };
+
+export type PostExtraDTO = Pick<
+  WPPostExtra,
+  | "subtitle"
+  | "highlight"
+  | "format"
+  | "gallery_json"
+  | "video_embed"
+> & { post_id: number };

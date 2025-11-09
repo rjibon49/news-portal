@@ -1,8 +1,9 @@
 // src/app/api/r2/posts/[id]/route.ts
 // -----------------------------------------------------------------------------
 // Single Post API (GET / PATCH / DELETE)
-// - GET    : editor prefill (+ schedule info + EXTRA + last edited)
+// - GET    : editor prefill (+ schedule info + EXTRA + last edited + AUDIO)
 // - PATCH  : full update (status, tax, tags, featured, slug, scheduledAt, EXTRA)
+//            + optional audio generation trigger
 // - DELETE : hard delete (admin only)
 // -----------------------------------------------------------------------------
 
@@ -13,14 +14,13 @@ import { isAdmin } from "@/lib/auth/isAdmin";
 import { z, ZodError } from "zod";
 import { query } from "@/db/mysql";
 
-// ✅ Updated to use modular repo barrel
+// ✅ modular repo barrel
 import { hardDeletePostRepo, updatePostRepo } from "@/db/repo/posts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /* ─────────────── helpers ─────────────── */
-// পোস্টের author বের করা (authZ চেকের জন্য)
 async function getPostAuthorId(postId: number): Promise<number | null> {
   const rows = await query<{ post_author: number }>(
     `SELECT post_author FROM wp_posts WHERE ID = ? LIMIT 1`,
@@ -29,26 +29,25 @@ async function getPostAuthorId(postId: number): Promise<number | null> {
   return rows[0]?.post_author ?? null;
 }
 
-// accept ISO বা 'YYYY-MM-DDTHH:mm' (datetime-local) — দুটোই
+// accept ISO বা 'YYYY-MM-DDTHH:mm'
 const DatetimeLocalOrISO = z.union([
   z.string().datetime({ offset: true }),
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
 ]);
 
-// Gallery item schema
 const GalleryItemSchema = z.object({
   id: z.coerce.number().int().positive(),
   url: z.string().optional(),
 });
 
-// PATCH body ভ্যালিডেশন (সহজ/সহনশীল, editor থেকে যেটা আসে সেটা কভার করে)
+// PATCH payload (lenient but typed)
 const UpdateSchema = z.object({
   title: z.string().max(200).optional(),
   content: z.string().optional(),
   excerpt: z.string().optional(),
   status: z.enum(["publish", "draft", "pending", "trash", "future"]).optional(),
   slug: z.string().max(190).optional(),
-  // সংখ্যা coercion করলে UI থেকে string এলেও ভাঙবে না
+
   categoryTtxIds: z.array(z.coerce.number().int().positive()).optional(),
   tagNames: z.array(z.string().min(1)).optional(),
   featuredImageId: z.coerce.number().int().positive().nullable().optional(),
@@ -64,12 +63,20 @@ const UpdateSchema = z.object({
   videoEmbed: z.string().nullable().optional(),
 
   // Schedule
-  scheduledAt: DatetimeLocalOrISO.nullable().optional(), // null=clear, string=set
+  scheduledAt: DatetimeLocalOrISO.nullable().optional(), // null=clear
+
+  // 🔊 Optional TTS intent (handled AFTER update)
+  audio: z
+    .object({
+      generate: z.boolean().optional(),
+      lang: z.string().optional(),       // e.g., 'en', 'bn'
+      overwrite: z.boolean().optional(), // re-generate even if exists
+    })
+    .partial()
+    .optional(),
 });
 
-/* ─────────────── GET /posts/:id ───────────────
-   - Editor prefill: cats, tags, featured, EXTRA, schedule(local), last edited
------------------------------------------------- */
+/* ─────────────── GET /posts/:id ─────────────── */
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -121,15 +128,23 @@ export async function GET(
       [postId]
     );
 
-    // EXTRA (wp_post_extra single row)
+    // EXTRA (+ AUDIO)
     const extra = await query<{
       subtitle: string | null;
       highlight: string | null;
       format: "standard" | "gallery" | "video" | null;
       gallery_json: string | null;
       video_embed: string | null;
+
+      audio_status: "none" | "queued" | "ready" | "error" | null;
+      audio_url: string | null;
+      audio_lang: string | null;
+      audio_chars: number | null;
+      audio_duration_sec: number | null;
+      audio_updated_at: string | null;
     }>(
-      `SELECT subtitle, highlight, format, gallery_json, video_embed
+      `SELECT subtitle, highlight, format, gallery_json, video_embed,
+              audio_status, audio_url, audio_lang, audio_chars, audio_duration_sec, audio_updated_at
          FROM wp_post_extra WHERE post_id = ? LIMIT 1`,
       [postId]
     );
@@ -152,7 +167,7 @@ export async function GET(
           ).then((r) => r[0] || null)
         : null;
 
-    // datetime-local ইনপুটের জন্য `YYYY-MM-DDTHH:mm` বানানো
+    // datetime-local input: YYYY-MM-DDTHH:mm
     const toLocalInput = (s: string) => {
       if (!s) return null;
       const d = new Date(s.replace(" ", "T"));
@@ -175,15 +190,24 @@ export async function GET(
         categoryTtxIds: cats.map((c) => c.term_taxonomy_id),
         tagNames: tags.map((t) => t.name),
         featuredImageId: thumb[0]?.meta_value ? Number(thumb[0].meta_value) : null,
-        scheduledAt: toLocalInput(r.post_date), // editor binding-friendly
+        scheduledAt: toLocalInput(r.post_date),
 
         // EXTRA
         subtitle: ex?.subtitle ?? null,
         highlight: ex?.highlight ?? null,
-        format:
-          (ex?.format as "standard" | "gallery" | "video" | undefined) ?? "standard",
-        gallery, // Array<{id, url?}>
+        format: (ex?.format as "standard" | "gallery" | "video" | undefined) ?? "standard",
+        gallery,
         videoEmbed: ex?.video_embed ?? null,
+
+        // 🔊 AUDIO snapshot
+        audio: {
+          status: ex?.audio_status ?? "none",
+          url: ex?.audio_url ?? null,
+          lang: ex?.audio_lang ?? null,
+          chars: ex?.audio_chars ?? null,
+          durationSec: ex?.audio_duration_sec ?? null,
+          updatedAt: ex?.audio_updated_at ?? null,
+        },
 
         // last edited
         lastEdited: {
@@ -198,10 +222,7 @@ export async function GET(
   }
 }
 
-/* ─────────────── PATCH /posts/:id ───────────────
-   - Admin: full edit
-   - Non-admin (author): own post only; status কেবল 'draft' করা যাবে
--------------------------------------------------- */
+/* ─────────────── PATCH /posts/:id ─────────────── */
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -226,13 +247,13 @@ export async function PATCH(
       if (authorId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // 🧪 validate payload
+    // 🧪 validate payload (be tolerant)
     const rawData = await req.json().catch(() => ({}));
     let data: z.infer<typeof UpdateSchema>;
     try {
       data = UpdateSchema.parse(rawData);
-    } catch (zodError) {
-      // Fallback to manual parsing (lenient)
+    } catch (_zodErr) {
+      // very lenient fallback (keeps your earlier behavior)
       data = {
         title: rawData.title,
         content: rawData.content,
@@ -251,10 +272,11 @@ export async function PATCH(
         gallery: rawData.gallery,
         videoEmbed: rawData.videoEmbed,
         scheduledAt: rawData.scheduledAt,
+        audio: rawData.audio,
       } as any;
     }
 
-    // ✅ Authors can publish their own posts (kept from your logic)
+    // ✅ (Optional) tighten policy for non-admins
     if (!admin && data.status && data.status !== "draft") {
       const authorId = await getPostAuthorId(postId);
       if (authorId !== uid) {
@@ -281,7 +303,31 @@ export async function PATCH(
       scheduledAt: data.scheduledAt,
     });
 
-    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+    // 🔊 Optionally queue TTS after successful update (non-fatal if it fails)
+    let audioQueued = false;
+    try {
+      if (data.audio?.generate) {
+        const origin = new URL(req.url).origin;
+        await fetch(`${origin}/api/r2/tts/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            postId,
+            lang: data.audio.lang,
+            overwrite: data.audio.overwrite ?? false,
+          }),
+        }).catch(() => {});
+        audioQueued = true;
+      }
+    } catch (e) {
+      console.warn("[posts.update] TTS queue failed (non-fatal):", e);
+    }
+
+    return NextResponse.json(
+      { ok: true, audioQueued },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (e: any) {
     if (e instanceof ZodError) {
       return NextResponse.json(
@@ -293,9 +339,7 @@ export async function PATCH(
   }
 }
 
-/* ─────────────── DELETE /posts/:id ───────────────
-   - Admin only: hard delete (posts + metas + terms + comments)
---------------------------------------------------- */
+/* ─────────────── DELETE /posts/:id ─────────────── */
 export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }

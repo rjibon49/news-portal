@@ -1,0 +1,51 @@
+.container {
+  padding: 16px;
+  min-height: 90vh;
+}
+
+/* Filters */
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  margin-bottom: 16px;
+}
+.row8 { display: flex; gap: 8px; }
+.labelMb4 { margin-bottom: 4px; }
+.applyWrap { align-self: end; }
+
+/* KPIs */
+.kpis {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 16px;
+}
+.kpiCard { padding: 16px; text-align: center; }
+.kpiValue { font-size: 24px; font-weight: 700; }
+
+/* Error */
+.error { color: #ff6b6b; margin-top: 8px; }
+
+/* Trend card */
+.trendCard { margin-top: 16px; padding: 16px; }
+.cardHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.btnRow { display: flex; gap: 8px; }
+.chartBox { width: 100%; height: 320px; }
+.noData { padding: 32px; text-align: center; }
+
+/* Top tables */
+.topTables {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 16px;
+}
+.topCard { padding: 16px; }
+.tableSpaced { margin-top: 8px; }
+.pad12 { padding: 12px; }
+
+/* Loading */
+.loading { margin-top: 12px; }

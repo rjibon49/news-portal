@@ -348,17 +348,18 @@ CREATE TABLE IF NOT EXISTS wp_post_view_daily (
 
 
 /* 1) কোথায় অ্যাড বসবে: beforeTitle, beforeImage, ... */
-CREATE TABLE ad_slot (
-  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  slot_key     VARCHAR(64) NOT NULL UNIQUE,   -- e.g. 'beforeTitle', 'afterBody'
-  label        VARCHAR(120) NOT NULL,         -- human name
-  enabled      TINYINT(1) NOT NULL DEFAULT 1, -- on/off from admin
-  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+CREATE TABLE wp_ad_slot (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  slot_key VARCHAR(64) NOT NULL UNIQUE,
+  name VARCHAR(120) NOT NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  max_ads INT NULL DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 /* 2) অ্যাড ক্রিয়েটিভ (image/html/script ইত্যাদি) */
-CREATE TABLE ad_creative (
+CREATE TABLE wp_ad_creative (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name          VARCHAR(120) NOT NULL,              -- internal name
   type          ENUM('image','html','script') NOT NULL DEFAULT 'html',
@@ -375,7 +376,7 @@ CREATE TABLE ad_creative (
 ) ENGINE=InnoDB;
 
 /* 3) কোন slot-এ কোন creative যাবে + optional date window */
-CREATE TABLE ad_placement (
+CREATE TABLE wp_ad_placement (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   slot_id       INT UNSIGNED NOT NULL,
   creative_id   INT UNSIGNED NOT NULL,
@@ -392,7 +393,7 @@ CREATE TABLE ad_placement (
 ) ENGINE=InnoDB;
 
 /* 4) র’ ইভেন্ট লগ (impression/click) — CTR এটাতেই ভিত্তি */
-CREATE TABLE ad_event (
+CREATE TABLE wp_ad_event (
   id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   occurred_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   event_type    ENUM('impression','click') NOT NULL,
@@ -449,6 +450,64 @@ INSERT INTO ad_slot (slot_key, label, enabled) VALUES
 ('beforeBody','Before Article Body',1),
 ('afterBody','After Article Body',1),
 ('afterTags','After Tags',1);
+
+
+
+CREATE TABLE wp_ad_impression (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  placement_id INT UNSIGNED NOT NULL,
+  creative_id INT UNSIGNED,
+  user_agent VARCHAR(255) DEFAULT NULL,
+  ts DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  INDEX idx_placement (placement_id),
+  INDEX idx_creative (creative_id),
+  INDEX idx_ts (ts)
+);
+
+CREATE TABLE wp_ad_click (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  placement_id INT UNSIGNED NOT NULL,
+  creative_id INT UNSIGNED,
+  user_agent VARCHAR(255) DEFAULT NULL,
+  ts DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  INDEX idx_placement (placement_id),
+  INDEX idx_creative (creative_id),
+  INDEX idx_ts (ts)
+);
+
+ALTER TABLE `wp_post_extra`
+  ADD COLUMN `tts_audio_url`    VARCHAR(255) NULL,
+  ADD COLUMN `tts_lang`         VARCHAR(16)  NULL,
+  ADD COLUMN `tts_voice`        VARCHAR(64)  NULL,
+  ADD COLUMN `tts_chars`        INT          NULL,
+  ADD COLUMN `tts_duration_sec` INT          NULL,
+  ADD COLUMN `tts_updated_at`   DATETIME     NULL;
+
+
+  ALTER TABLE `wp_post_extra`
+  ADD COLUMN IF NOT EXISTS `tts_audio_url`    VARCHAR(255) NULL AFTER `video_embed`,
+  ADD COLUMN IF NOT EXISTS `tts_lang`         VARCHAR(16)  NULL AFTER `tts_audio_url`,
+  ADD COLUMN IF NOT EXISTS `tts_voice`        VARCHAR(64)  NULL AFTER `tts_lang`,
+  ADD COLUMN IF NOT EXISTS `tts_chars`        INT UNSIGNED NULL AFTER `tts_voice`,
+  ADD COLUMN IF NOT EXISTS `tts_duration_sec` INT UNSIGNED NULL AFTER `tts_chars`,
+  ADD COLUMN IF NOT EXISTS `tts_updated_at`   DATETIME     NULL AFTER `tts_duration_sec`;
+
+-- (ঐচ্ছিক) দ্রুত সার্চের জন্য ইনডেক্স
+ALTER TABLE `wp_post_extra`
+  ADD INDEX IF NOT EXISTS `idx_tts_updated_at` (`tts_updated_at`),
+  ADD INDEX IF NOT EXISTS `idx_tts_audio_url`  (`tts_audio_url`);
+
+
+  ALTER TABLE `wp_post_extra`
+  ADD COLUMN IF NOT EXISTS `audio_status` ENUM('none','queued','ready','error') NOT NULL DEFAULT 'none',
+  ADD COLUMN IF NOT EXISTS `audio_url` VARCHAR(255) NULL,
+  ADD COLUMN IF NOT EXISTS `audio_lang` VARCHAR(8) NULL DEFAULT 'en',
+  ADD COLUMN IF NOT EXISTS `audio_chars` INT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS `audio_duration_sec` INT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS `audio_updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP;
+
 
 
 

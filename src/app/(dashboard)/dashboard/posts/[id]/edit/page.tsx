@@ -9,6 +9,7 @@ import MediaPicker from "@/components/media/MediaPicker";
 import TagPicker from "@/components/post-editor/TagPicker";
 import AuthorPicker, { type AuthorLite } from "@/components/post-editor/AuthorPicker";
 import { slugify } from "@/lib/slugify";
+import styles from "./edit.module.css";
 
 /**
  * Edit Post (Bangladesh time aware)
@@ -29,27 +30,21 @@ type Prefill = {
   tagNames: string[];
   featuredImageId: number | null;
   scheduledAt: string | null; // BD local for input
+
+  // EXTRA
   subtitle?: string | null;
   highlight?: string | null;
   format?: "standard" | "gallery" | "video";
   gallery?: GalleryItem[] | null;
   videoEmbed?: string | null;
 
-  // OPTIONAL: if your endpoint includes author object
   author?: {
-    id?: number;
-    ID?: number;
-    name?: string;
-    display_name?: string;
-    username?: string;
-    user_login?: string;
-    email?: string | null;
-    user_email?: string | null;
-    avatar?: string | null;
-    avatarUrl?: string | null;
-    avatar_url?: string | null;
-    slug?: string;
-    user_nicename?: string;
+    id?: number; ID?: number;
+    name?: string; display_name?: string;
+    username?: string; user_login?: string;
+    email?: string | null; user_email?: string | null;
+    avatar?: string | null; avatarUrl?: string | null; avatar_url?: string | null;
+    slug?: string; user_nicename?: string;
   } | null;
 };
 
@@ -64,7 +59,11 @@ type Category = {
 
 type CatOption = { id: number; name: string; label: string; depth: number };
 
-type MeInfo = { id: number; role: "administrator" | "editor" | "author" | "contributor" | "subscriber"; canPublishNow: boolean };
+type MeInfo = {
+  id: number;
+  role: "administrator" | "editor" | "author" | "contributor" | "subscriber";
+  canPublishNow: boolean;
+};
 
 /* ---------------------- BD time helpers ---------------------- */
 function formatBDDisplay(s: string) {
@@ -74,26 +73,34 @@ function formatBDDisplay(s: string) {
     if (isNaN(d.getTime())) return "";
     return d.toLocaleString("en-BD", {
       timeZone: "Asia/Dhaka",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
     });
-  } catch {
-    return "";
-  }
+  } catch { return ""; }
 }
 
 function nowForBDInput(): string {
   const bangladeshOffsetMs = 6 * 60 * 60 * 1000; // UTC+6
   const bd = new Date(Date.now() + bangladeshOffsetMs);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${bd.getUTCFullYear()}-${pad(bd.getUTCMonth() + 1)}-${pad(bd.getUTCDate())}T${pad(
-    bd.getUTCHours()
-  )}:${pad(bd.getUTCMinutes())}`;
+  return `${bd.getUTCFullYear()}-${pad(bd.getUTCMonth() + 1)}-${pad(bd.getUTCDate())}T${pad(bd.getUTCHours())}:${pad(bd.getUTCMinutes())}`;
+}
+
+/* ---------------------- TTS helpers/types ---------------------- */
+type TtsGenResp = { url: string; duration_sec?: number; chars?: number; lang?: string; voice?: string; };
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /* ============================================================ */
@@ -121,7 +128,7 @@ export default function EditPostPage() {
   const [tagNames, setTagNames] = useState<string[]>([]);
   const [featured, setFeatured] = useState<{ id: number; url?: string } | null>(null);
 
-  // Author (NEW)
+  // Author
   const [selectedAuthor, setSelectedAuthor] = useState<AuthorLite | null>(null);
 
   // EXTRA
@@ -140,11 +147,14 @@ export default function EditPostPage() {
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleAt, setScheduleAt] = useState<string>(""); // BD local for input
 
+  // TTS UI state
+  const [ttsLang, setTtsLang] = useState<"bn-BD" | "en-US">("bn-BD");
+  const [ttsVoice, setTtsVoice] = useState<string>("female_1");
+  const [ttsBusy, setTtsBusy] = useState(false);
+  const [ttsAudio, setTtsAudio] = useState<TtsGenResp | null>(null);
+
   const effectiveSlug = useMemo(
-    () =>
-      (slug
-        ? slugify(slug, { keepUnicode: false })
-        : slugify(title, { keepUnicode: false })) || "post",
+    () => (slug ? slugify(slug, { keepUnicode: false }) : slugify(title, { keepUnicode: false })) || "post",
     [slug, title]
   );
 
@@ -158,21 +168,12 @@ export default function EditPostPage() {
 
   function makeCategoryOptions(rows: Category[]): CatOption[] {
     const byParent: Record<number, Category[]> = {};
-    rows.forEach((r) => {
-      const p = r.parent || 0;
-      (byParent[p] ||= []).push(r);
-    });
+    rows.forEach((r) => { const p = r.parent || 0; (byParent[p] ||= []).push(r); });
     Object.values(byParent).forEach((list) => list.sort((a, b) => a.name.localeCompare(b.name)));
-
     const out: CatOption[] = [];
     const walk = (parentId: number, depth: number) => {
       (byParent[parentId] || []).forEach((c) => {
-        out.push({
-          id: c.term_taxonomy_id,
-          name: c.name,
-          label: `${"— ".repeat(depth)}${c.name}`,
-          depth,
-        });
+        out.push({ id: c.term_taxonomy_id, name: c.name, label: `${"— ".repeat(depth)}${c.name}`, depth });
         walk(c.term_taxonomy_id, depth + 1);
       });
     };
@@ -188,8 +189,7 @@ export default function EditPostPage() {
     try {
       // me
       const meRes = await fetch("/api/r2/me", { cache: "no-store" });
-      if (meRes.ok) setMe(await meRes.json());
-      else setMe(null);
+      if (meRes.ok) setMe(await meRes.json()); else setMe(null);
 
       // post
       const res = await fetch(`/api/r2/posts/${id}`, { cache: "no-store" });
@@ -198,8 +198,7 @@ export default function EditPostPage() {
 
       setTitle(j.title || "");
       setSlug(j.slug || "");
-      const norm =
-        (j.status === "trash" ? "draft" : j.status) as "publish" | "draft" | "pending" | "future";
+      const norm = (j.status === "trash" ? "draft" : j.status) as "publish" | "draft" | "pending" | "future";
       setInitialStatus(norm);
       setStatus((norm === "future" ? "draft" : (norm as any)) as any);
 
@@ -215,12 +214,8 @@ export default function EditPostPage() {
             const m = await mr.json();
             setFeatured({ id: j.featuredImageId, url: m.guid || m.url });
           } else setFeatured({ id: j.featuredImageId });
-        } catch {
-          setFeatured({ id: j.featuredImageId });
-        }
-      } else {
-        setFeatured(null);
-      }
+        } catch { setFeatured({ id: j.featuredImageId }); }
+      } else setFeatured(null);
 
       setSubtitle((j.subtitle ?? "") || "");
       setHighlight((j.highlight ?? "") || "");
@@ -228,7 +223,7 @@ export default function EditPostPage() {
       setGallery(Array.isArray(j.gallery) ? j.gallery : []);
       setVideoEmbed((j.videoEmbed ?? "") || "");
 
-      // Author prefill (type-safe)
+      // Author prefill
       const a = j.author;
       if (a && (a.id || a.ID)) {
         const authorLite: AuthorLite = {
@@ -239,9 +234,7 @@ export default function EditPostPage() {
           avatar: (a.avatar ?? a.avatarUrl ?? a.avatar_url ?? null) as string | null,
         };
         setSelectedAuthor(authorLite);
-      } else {
-        setSelectedAuthor(null);
-      }
+      } else setSelectedAuthor(null);
 
       // schedule (server gives BD-local or null)
       setScheduleEnabled(false);
@@ -257,9 +250,7 @@ export default function EditPostPage() {
     }
   }
 
-  useEffect(() => {
-    if (id) void load();
-  }, [id]);
+  useEffect(() => { if (id) void load(); }, [id]);
 
   // When user toggles schedule ON and no value exists, seed with "now in BD"
   useEffect(() => {
@@ -269,12 +260,8 @@ export default function EditPostPage() {
 
   /* ----------------------- Build payload ----------------------- */
   function buildPayload(forceStatus?: "draft" | "publish" | "pending") {
-    const cleanCats = Array.from(new Set(selectedCats)).filter(
-      (x) => Number.isFinite(x) && x > 0
-    ) as number[];
-
+    const cleanCats = Array.from(new Set(selectedCats)).filter((x) => Number.isFinite(x) && x > 0) as number[];
     const cleanTags = tagNames.map((t) => (t || "").trim()).filter(Boolean);
-
     const cleanGallery = (Array.isArray(gallery) ? gallery : [])
       .filter((g) => Number.isFinite(g.id) && g.id > 0)
       .map((g) => ({ id: Number(g.id), url: g.url || undefined }));
@@ -295,18 +282,12 @@ export default function EditPostPage() {
       videoEmbed: (format === "video" ? videoEmbed.trim() : "").trim() || null,
     };
 
-    // author override (admin/editor only)
-    if (canChangeAuthor && selectedAuthor?.id) {
-      payload.authorId = selectedAuthor.id;
-    }
+    if (canChangeAuthor && selectedAuthor?.id) payload.authorId = selectedAuthor.id;
 
-    // schedule
     if (scheduleEnabled && scheduleAt) {
       const d = new Date(scheduleAt);
-      if (!isNaN(d.getTime())) payload.scheduledAt = d.toISOString(); // UTC ISO
-    } else {
-      payload.scheduledAt = null;
-    }
+      if (!isNaN(d.getTime())) payload.scheduledAt = d.toISOString();
+    } else payload.scheduledAt = null;
 
     return payload;
   }
@@ -341,7 +322,6 @@ export default function EditPostPage() {
 
   async function onSaveDraft() {
     if (!title.trim()) return toast.error("Title is required");
-
     setSaving(true);
     try {
       const payload = buildPayload("draft");
@@ -360,13 +340,10 @@ export default function EditPostPage() {
     if (!content.trim()) return toast.error("Content is required");
 
     const canPublish = !!me?.canPublishNow;
-
     setSaving(true);
     try {
       const payload = buildPayload(canPublish ? "publish" : "pending");
-      if (!canPublish) {
-        payload.scheduledAt = null;
-      }
+      if (!canPublish) payload.scheduledAt = null;
 
       await save(payload);
 
@@ -392,386 +369,305 @@ export default function EditPostPage() {
       return next;
     });
 
-  if (loading) return <div className="container">Loading…</div>;
+  /* ----------------------- TTS action ----------------------- */
+  async function onGenerateTts() {
+    try {
+      if (!content.trim()) return toast.error("Write some content first.");
+      setTtsBusy(true);
+
+      const text = stripHtml(content);
+      if (!text) {
+        setTtsBusy(false);
+        return toast.error("Nothing to convert. Please add content.");
+      }
+
+      const res = await fetch("/api/r2/tts/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId,
+          lang: ttsLang,
+          voice: ttsVoice,
+          text,
+          title: title?.trim() || undefined,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as TtsGenResp & { error?: string };
+      if (!res.ok) throw new Error(j?.error || "TTS failed");
+
+      setTtsAudio(j);
+      toast.success("Audio generated");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to generate audio");
+    } finally {
+      setTtsBusy(false);
+    }
+  }
+
+  if (loading) return <div className={styles.container}>Loading…</div>;
   const isInitiallyPublished = initialStatus === "publish";
 
   const publishBtnLabel = me?.canPublishNow
-    ? scheduleEnabled && isFuture
-      ? "Schedule"
-      : "Publish"
+    ? (scheduleEnabled && isFuture ? "Schedule" : "Publish")
     : "Pending Review";
 
   return (
-    <div className="container dashboardContainer">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onUpdate();
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <h2>Edit Post</h2>
-          <small className="dim">
-            {/* simple live hint could be wired with your autosave if needed */}
-          </small>
-        </div>
-
-        <label className="label">Title *</label>
-        <input
-          className="input"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Enter title here"
-        />
-
-        <label className="label" style={{ marginTop: 10 }}>
-          Slug
-        </label>
-        <input
-          className="input"
-          value={slug}
-          onChange={(e) => setSlug(e.target.value)}
-          placeholder="optional"
-        />
-        <small className="dim">
-          Preview: <code>{effectiveSlug}</code>
-        </small>
-
-        <label className="label" style={{ marginTop: 10 }}>
-          Subtitle
-        </label>
-        <input
-          className="input"
-          value={subtitle}
-          onChange={(e) => setSubtitle(e.target.value)}
-          placeholder="Subtitle (optional)"
-        />
-
-        <label className="label" style={{ marginTop: 10 }}>
-          Highlight / Tagline
-        </label>
-        <input
-          className="input"
-          value={highlight}
-          onChange={(e) => setHighlight(e.target.value)}
-          placeholder="Highlight / Tagline (optional)"
-        />
-
-        <label className="label" style={{ marginTop: 10 }}>
-          Content *
-        </label>
-        <TinyEditor value={content} onChange={setContent} />
-
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="card-hd">Format</div>
-          <div className="card-bd">
-            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              {(["standard", "gallery", "video"] as const).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={`chip ${format === f ? "active" : ""}`}
-                  onClick={() => setFormat(f)}
-                >
-                  {f[0].toUpperCase() + f.slice(1)}
-                </button>
-              ))}
+    <div className={styles.container}>
+      <div className={styles.grid}>
+        {/* ====================== Main column ====================== */}
+        <div className={styles.mainCol}>
+          <form
+            onSubmit={(e) => { e.preventDefault(); onUpdate(); }}
+          >
+            <div className={styles.headerRow}>
+              <h2 className={styles.h2}>Edit Post</h2>
+              <small className={styles.dim} />
             </div>
 
-            {format === "gallery" && (
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <strong>Gallery Images</strong>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => setGalleryPickerOpen(true)}
-                  >
-                    Choose Image
-                  </button>
+            <label className={styles.label}>Title *</label>
+            <input className={styles.input} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Enter title here" />
+
+            <label className={styles.label}>Slug</label>
+            <input className={styles.input} value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="optional" />
+            <small className={styles.dim}>Preview: <code>{effectiveSlug}</code></small>
+
+            <label className={styles.label}>Subtitle</label>
+            <input className={styles.input} value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Subtitle (optional)" />
+
+            <label className={styles.label}>Highlight / Tagline</label>
+            <input className={styles.input} value={highlight} onChange={(e) => setHighlight(e.target.value)} placeholder="Highlight / Tagline (optional)" />
+
+            <label className={styles.label}>Content *</label>
+            <TinyEditor value={content} onChange={setContent} />
+
+            <div className={styles.card}>
+              <div className={styles.cardHd}>Format</div>
+              <div className={styles.cardBd}>
+                <div className={styles.chipsRow}>
+                  {(["standard", "gallery", "video"] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      className={`${styles.chip} ${format === f ? styles.chipActive : ""}`}
+                      onClick={() => setFormat(f)}
+                    >
+                      {f[0].toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
                 </div>
 
-                {!gallery.length ? (
-                  <small className="dim">No images selected</small>
-                ) : (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
-                      gap: 10,
-                    }}
-                  >
-                    {gallery.map((g, i) => (
-                      <div
-                        key={`${g.id}-${i}`}
-                        style={{
-                          border: "1px solid #333",
-                          borderRadius: 8,
-                          overflow: "hidden",
-                          background: "#222",
-                        }}
-                      >
-                        {g.url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={g.url}
-                            alt=""
-                            style={{ width: "100%", height: 100, objectFit: "cover", display: "block" }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              height: 100,
-                              display: "grid",
-                              placeItems: "center",
-                              opacity: 0.6,
-                            }}
-                          >
-                            #{g.id}
+                {format === "gallery" && (
+                  <div>
+                    <div className={styles.rowBetween}>
+                      <strong>Gallery Images</strong>
+                      <button type="button" className={styles.btnGhost} onClick={() => setGalleryPickerOpen(true)}>Choose Image</button>
+                    </div>
+
+                    {!gallery.length ? (
+                      <small className={styles.dim}>No images selected</small>
+                    ) : (
+                      <div className={styles.galleryGrid}>
+                        {gallery.map((g, i) => (
+                          <div key={`${g.id}-${i}`} className={styles.galleryItem}>
+                            {g.url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={g.url} alt="" className={styles.galleryImg} />
+                            ) : (
+                              <div className={styles.galleryPlaceholder}>#{g.id}</div>
+                            )}
+                            <div className={styles.galleryBtns}>
+                              <button type="button" className={styles.btnGhost} onClick={() => moveGalleryItem(i, -1)} disabled={i === 0}>↑</button>
+                              <button type="button" className={styles.btnGhost} onClick={() => moveGalleryItem(i, 1)} disabled={i === gallery.length - 1}>↓</button>
+                              <button type="button" className={styles.btnGhost} onClick={() => removeGalleryItem(i)}>Remove</button>
+                            </div>
                           </div>
-                        )}
-                        <div style={{ display: "flex", gap: 4, padding: 6 }}>
-                          <button
-                            type="button"
-                            className="btn-ghost"
-                            onClick={() => moveGalleryItem(i, -1)}
-                            disabled={i === 0}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-ghost"
-                            onClick={() => moveGalleryItem(i, 1)}
-                            disabled={i === gallery.length - 1}
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-ghost"
-                            onClick={() => removeGalleryItem(i)}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+                  </div>
+                )}
+
+                {format === "video" && (
+                  <div>
+                    <label className={styles.label}>Insert video URL or embed code</label>
+                    <textarea className={styles.textarea} rows={4} value={videoEmbed} onChange={(e) => setVideoEmbed(e.target.value)} placeholder="https://youtu.be/... or <iframe ...></iframe>" />
                   </div>
                 )}
               </div>
-            )}
+            </div>
 
-            {format === "video" && (
-              <div>
-                <label className="label">Insert video URL or embed code</label>
-                <textarea
-                  className="textarea"
-                  rows={4}
-                  value={videoEmbed}
-                  onChange={(e) => setVideoEmbed(e.target.value)}
-                  placeholder="https://youtu.be/... or <iframe ...></iframe>"
-                />
-              </div>
-            )}
-          </div>
+            <details className={styles.details}>
+              <summary>Excerpt</summary>
+              <textarea className={styles.textarea} value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={4} />
+            </details>
+          </form>
         </div>
 
-        <details style={{ marginTop: 12 }}>
-          <summary>Excerpt</summary>
-          <textarea
-            className="textarea"
-            value={excerpt}
-            onChange={(e) => setExcerpt(e.target.value)}
-            rows={4}
-          />
-        </details>
-      </form>
-
-      <aside style={{ display: "grid", gap: 12, marginTop: 16 }}>
-        <div className="card">
-          <div className="card-hd">Publish</div>
-          <div className="card-bd" style={{ display: "grid", gap: 10 }}>
-            <label>
-              <span className="label">Status</span>
-              <select
-                className="select"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
-              >
-                <option value="draft">Draft</option>
-                <option value="pending">Pending</option>
-                <option value="publish">Publish</option>
-              </select>
-            </label>
-
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={scheduleEnabled}
-                onChange={(e) => setScheduleEnabled(e.target.checked)}
-                disabled={!me?.canPublishNow}
-                title={!me?.canPublishNow ? "You can't schedule. Send for review." : undefined}
-              />
-              <span>Schedule this post</span>
-            </label>
-
-            {scheduleEnabled && me?.canPublishNow && (
+        {/* ====================== Side column ====================== */}
+        <aside className={styles.sideCol}>
+          <div className={styles.card}>
+            <div className={styles.cardHd}>Publish</div>
+            <div className={styles.cardBdGrid}>
               <label>
-                <span className="label">Publish on</span>
-                <input
-                  type="datetime-local"
-                  className="input"
-                  value={scheduleAt}
-                  onChange={(e) => setScheduleAt(e.target.value)}
-                />
-                {!!scheduleAt && (
-                  <small className="dim" style={{ display: "block", marginTop: 4 }}>
-                    {isFuture ? "Will schedule at " : "Will set date "}
-                    {formatBDDisplay(scheduleAt)}
-                  </small>
-                )}
+                <span className={styles.label}>Status</span>
+                <select className={styles.select} value={status} onChange={(e) => setStatus(e.target.value as any)}>
+                  <option value="draft">Draft</option>
+                  <option value="pending">Pending</option>
+                  <option value="publish">Publish</option>
+                </select>
               </label>
-            )}
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="btn-ghost" onClick={onSaveDraft} disabled={saving}>
-                {saving ? "Saving…" : "Save Draft"}
-              </button>
-              {!isInitiallyPublished && (
-                <button type="button" className="btn" onClick={onPublishNow} disabled={saving}>
-                  {saving ? (me?.canPublishNow ? "Publishing…" : "Sending…") : publishBtnLabel}
-                </button>
-              )}
-              <button type="button" className="btn" onClick={onUpdate} disabled={saving}>
-                {saving ? "Updating…" : "Update"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* NEW: Authors */}
-        <div className="card">
-          <div className="card-hd">Authors</div>
-          <div className="card-bd" style={{ display: "grid", gap: 8 }}>
-            <small className="dim">
-              {canChangeAuthor
-                ? "Pick a different author for this post."
-                : "You can’t change the author. Ask an editor/admin if needed."}
-            </small>
-            <div
-              aria-disabled={!canChangeAuthor}
-              style={{ opacity: canChangeAuthor ? 1 : 0.6, pointerEvents: canChangeAuthor ? "auto" : "none" }}
-            >
-              <AuthorPicker value={selectedAuthor} onChange={setSelectedAuthor} />
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-hd">Categories</div>
-          <div className="card-bd scroll" style={{ display: "grid", gap: 6, maxHeight: 280, overflow: "auto" }}>
-            {catOptions.map((opt) => (
-              <label
-                key={opt.id}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  paddingLeft: opt.depth ? Math.min(opt.depth * 12, 48) : 0,
-                }}
-                title={opt.name}
-              >
+              <label className={styles.inlineCheck}>
                 <input
                   type="checkbox"
-                  checked={selectedCats.includes(opt.id)}
-                  onChange={(e) =>
-                    setSelectedCats((p) => (e.target.checked ? [...p, opt.id] : p.filter((x) => x !== opt.id)))
-                  }
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  disabled={!me?.canPublishNow}
+                  title={!me?.canPublishNow ? "You can't schedule. Send for review." : undefined}
                 />
-                <span>{opt.label}</span>
+                <span>Schedule this post</span>
               </label>
-            ))}
-          </div>
-        </div>
 
-        <TagPicker value={tagNames} onChange={setTagNames} />
-
-        <div className="card">
-          <div className="card-hd">Featured image</div>
-          <div className="card-bd" style={{ display: "grid", gap: 8 }}>
-            {featured ? (
-              <>
-                <div
-                  style={{
-                    position: "relative",
-                    width: "100%",
-                    aspectRatio: "16 / 9",
-                    border: "1px solid #333",
-                    borderRadius: 8,
-                    overflow: "hidden",
-                    background: "#222",
-                  }}
-                >
-                  {featured.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={featured.url}
-                      alt="Featured"
-                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        display: "grid",
-                        placeItems: "center",
-                        opacity: 0.6,
-                      }}
-                    >
-                      Preview not available
-                    </div>
+              {scheduleEnabled && me?.canPublishNow && (
+                <label>
+                  <span className={styles.label}>Publish on</span>
+                  <input type="datetime-local" className={styles.input} value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+                  {!!scheduleAt && (
+                    <small className={styles.dim}>
+                      {isFuture ? "Will schedule at " : "Will set date "}{formatBDDisplay(scheduleAt)}
+                    </small>
                   )}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="btn-ghost" onClick={() => setPickerOpen(true)}>
-                    Change
-                  </button>
-                  <button type="button" className="btn-ghost" onClick={() => setFeatured(null)}>
-                    Remove
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <button type="button" className="btn-ghost" onClick={() => setPickerOpen(true)}>
-                  Choose Image
+                </label>
+              )}
+
+              <div className={styles.btnRowWrap}>
+                <button type="button" className={styles.btnGhost} onClick={onSaveDraft} disabled={saving}>
+                  {saving ? "Saving…" : "Save Draft"}
                 </button>
-                <small className="dim">No image selected</small>
-              </>
-            )}
+                {!isInitiallyPublished && (
+                  <button type="button" className={styles.btn} onClick={onPublishNow} disabled={saving}>
+                    {saving ? (me?.canPublishNow ? "Publishing…" : "Sending…") : publishBtnLabel}
+                  </button>
+                )}
+                <button type="button" className={styles.btn} onClick={onUpdate} disabled={saving}>
+                  {saving ? "Updating…" : "Update"}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </aside>
+
+          {/* Authors */}
+          <div className={styles.card}>
+            <div className={styles.cardHd}>Authors</div>
+            <div className={styles.cardBdGrid}>
+              <small className={styles.dim}>
+                {canChangeAuthor ? "Pick a different author for this post." : "You can’t change the author. Ask an editor/admin if needed."}
+              </small>
+              <div
+                aria-disabled={!canChangeAuthor}
+                className={!canChangeAuthor ? styles.disabled : ""}
+              >
+                <AuthorPicker value={selectedAuthor} onChange={setSelectedAuthor} />
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.card}>
+            <div className={styles.cardHd}>Categories</div>
+            <div className={`${styles.cardBd} ${styles.scroll}`}>
+              {catOptions.map((opt) => (
+                <label key={opt.id} className={styles.catRow} title={opt.name} style={{ paddingLeft: opt.depth ? Math.min(opt.depth * 12, 48) : 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedCats.includes(opt.id)}
+                    onChange={(e) => setSelectedCats((p) => (e.target.checked ? [...p, opt.id] : p.filter((x) => x !== opt.id)))}
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <TagPicker value={tagNames} onChange={setTagNames} />
+
+          <div className={styles.card}>
+            <div className={styles.cardHd}>Featured image</div>
+            <div className={styles.cardBdGrid}>
+              {featured ? (
+                <>
+                  <div className={styles.featuredBox}>
+                    {featured.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={featured.url} alt="Featured" className={styles.featuredImg} />
+                    ) : (
+                      <div className={styles.featuredPlaceholder}>Preview not available</div>
+                    )}
+                  </div>
+                  <div className={styles.btnRow}>
+                    <button type="button" className={styles.btnGhost} onClick={() => setPickerOpen(true)}>Change</button>
+                    <button type="button" className={styles.btnGhost} onClick={() => setFeatured(null)}>Remove</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button type="button" className={styles.btnGhost} onClick={() => setPickerOpen(true)}>Choose Image</button>
+                  <small className={styles.dim}>No image selected</small>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 🔊 Text-to-Audio (TTS) */}
+          <div className={styles.card}>
+            <div className={styles.cardHd}>Text-to-Audio</div>
+            <div className={styles.cardBdGrid}>
+              <label>
+                <span className={styles.label}>Language</span>
+                <select className={styles.select} value={ttsLang} onChange={(e) => setTtsLang(e.target.value as any)}>
+                  <option value="bn-BD">Bengali (Bangladesh)</option>
+                  <option value="en-US">English (US)</option>
+                </select>
+              </label>
+
+              <label>
+                <span className={styles.label}>Voice</span>
+                <select className={styles.select} value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)}>
+                  <option value="female_1">Female 1</option>
+                  <option value="male_1">Male 1</option>
+                </select>
+              </label>
+
+              <button type="button" className={styles.btn} onClick={onGenerateTts} disabled={ttsBusy}>
+                {ttsBusy ? "Generating…" : "Generate from Content"}
+              </button>
+
+              {ttsAudio?.url ? (
+                <>
+                  <small className={styles.dim}>
+                    {ttsAudio.duration_sec ? `~${Math.round(ttsAudio.duration_sec)}s` : ""} {ttsAudio.chars ? `(${ttsAudio.chars} chars)` : ""}
+                  </small>
+                  <audio controls preload="none" src={ttsAudio.url} className={styles.audio} />
+                  <small className={styles.dim}>This audio will appear at the top of the single article page.</small>
+                </>
+              ) : (
+                <small className={styles.dim}>Click “Generate from Content” to create an audio narration.</small>
+              )}
+            </div>
+          </div>
+        </aside>
+      </div>
 
       {/* Media Pickers */}
       <MediaPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(m) => {
-          setFeatured({ id: m.ID, url: m.guid });
-          setPickerOpen(false);
-        }}
+        onSelect={(m) => { setFeatured({ id: m.ID, url: m.guid }); setPickerOpen(false); }}
         imagesOnly
       />
       <MediaPicker
         open={galleryPickerOpen}
         onClose={() => setGalleryPickerOpen(false)}
-        onSelect={(m) => {
-          setGallery((prev) => [...prev, { id: m.ID, url: m.guid }]);
-          setGalleryPickerOpen(false);
-        }}
+        onSelect={(m) => { setGallery((prev) => [...prev, { id: m.ID, url: m.guid }]); setGalleryPickerOpen(false); }}
         imagesOnly
       />
     </div>

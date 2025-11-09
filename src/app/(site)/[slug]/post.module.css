@@ -1,0 +1,334 @@
+/* ---------- Card / Article ---------- */
+.article {
+  background: var(--card-bg, #181c26);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px 0 #0001;
+  padding: 28px 32px;
+  margin: 36px auto 0 auto;
+  max-width: 720px;
+  width: 100%;
+  position: relative;
+  display: block;
+  overflow: visible;               /* children bleed stop */
+  transition: box-shadow .18s;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-wrap: anywhere;        /* long URLs/words safe */
+}
+
+.article:first-child { margin-top: 0; }
+
+/* ---------- Title / Subtitle / Highlight ---------- */
+.title {
+  font-weight: 800;
+  line-height: 1.2;
+  margin: 0 0 8px;
+  font-size: clamp(1.35rem, 1.1rem + 1.2vw, 2rem);
+  letter-spacing: -0.01em;
+}
+
+.highlight {
+  color: #f1c232;
+  font-size: 1.08em;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  color: #b7c0d1;
+  font-size: 1rem;
+  margin: 6px 0 14px;
+}
+
+/* ---------- Meta Row ---------- */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.98rem;
+  color: #a7b7c7;
+  margin: 0 0 14px;
+}
+.metaLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.author {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+  color: #6fbeff;
+  font-weight: 600;
+}
+.author:hover { text-decoration: underline; }
+
+.authorAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #141a24;
+  border: 1.5px solid #253349;
+}
+.authorName { font-weight: 700; }
+
+.dateWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #a7b7c7;
+}
+.metaIcon {
+  width: 17px;
+  height: 17px;
+  color: #8ca4ce;
+  vertical-align: middle;
+}
+.date { font-size: 0.98em; }
+
+/* ---------- Categories / Tags ---------- */
+.cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 8px;
+}
+.cat {
+  font-size: 0.95em;
+  padding: 2px 10px;
+  border-radius: 7px;
+  background: #24334b;
+  color: #7dcaff;
+  border: 1px solid #375a78;
+  text-decoration: none;
+  transition: background 0.13s, color 0.13s, border-color 0.13s;
+}
+.cat:hover { background: #143350; color: #fff; }
+
+.tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 18px 0 8px;            /* content থেকে breathing room */
+}
+.tag {
+  font-size: 0.93em;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: #212b3a;
+  border: 1px solid #25405b;
+  color: #46bcee;
+  text-decoration: none;
+  transition: background 0.16s, color 0.16s, border-color 0.16s;
+}
+.tag:hover { background: #183c68; color: #fff; text-decoration: underline; }
+
+/* ---------- Feature Image ---------- */
+.featureImg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto !important;   /* ✅ অ্যাসপেক্ট রেশিও ঠিক থাকবে */
+  object-fit: contain;       /* ✅ কোনো ক্রপ হবে না */
+  border-radius: 12px;       /* কার্ডের ভেতর সুন্দর রাউন্ড এজ */
+  margin: 10px 0 18px;
+  background: #0f1623;
+  border: 1.5px solid #232d3c;
+}
+
+/* ---------- Content Typography ---------- */
+.content {
+  font-size: 1.02rem;
+  line-height: 1.7;
+  color: #e5ecf5;
+}
+
+.content p { margin: 0 0 1rem; }
+.content h2, .content h3, .content h4 {
+  line-height: 1.28;
+  margin: 1.25rem 0 0.6rem;
+  color: #f3f6fb;
+}
+.content h2 { font-size: clamp(1.15rem, 1.02rem + .6vw, 1.5rem); }
+.content h3 { font-size: clamp(1.05rem, .98rem + .4vw, 1.25rem); }
+.content h4 { font-size: clamp(1rem, .95rem + .25vw, 1.1rem); }
+
+.content a { color: #79c7ff; text-decoration: underline; }
+.content a:hover { color: #bfe4ff; }
+
+.content ul, .content ol {
+  margin: 0 0 1rem 1.25rem;
+  padding: 0;
+}
+.content li { margin: 0.25rem 0; }
+
+.content blockquote {
+  margin: 1rem 0;
+  padding: .75rem 1rem;
+  border-left: 4px solid #355a86;
+  background: #0f1a29;
+  color: #cfe6ff;
+  border-radius: 8px;
+}
+
+.content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: .95em;
+  background: #0d1725;
+  border: 1px solid #22334a;
+  padding: .15rem .4rem;
+  border-radius: 6px;
+}
+.content pre {
+  overflow: auto;
+  padding: .85rem 1rem;
+  border-radius: 10px;
+  background: #0d1725;
+  border: 1px solid #22334a;
+  margin: 0 0 1rem;
+}
+
+.content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .97rem;
+  margin: 0 0 1rem;
+  border: 1px solid #233146;
+}
+.content th, .content td {
+  padding: .55rem .7rem;
+  border-bottom: 1px solid #233146;
+}
+.content thead th {
+  background: #162236;
+  color: #d9e6ff;
+}
+
+/* media coming from WP content */
+.content img,
+.content video,
+.content iframe,
+.content figure {
+  display: block;
+  max-width: 100%;
+  width: 100%;
+  height: auto !important;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* keep iframes responsive if width/height are fixed in HTML */
+.content iframe {
+  width: 100% !important;
+  aspect-ratio: 16 / 9;
+}
+
+/* ---------- Gallery ---------- */
+.galleryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 18px;
+  margin: 22px 0;
+}
+.galleryItem { }
+.galleryImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1.5px solid #232d3c;
+}
+
+/* ---------- Divider / Loader ---------- */
+.divider {
+  border: none;
+  border-bottom: 1.5px solid #232e43;
+  margin: 34px 0 30px;
+}
+.loadBadge {
+  color: #969eac;
+  padding: 24px 0 28px;
+  width: 100%;
+  text-align: center;
+  font-size: 1.12em;
+}
+
+
+/* ---------- ad styles ---------- */
+.adWrap {               /* container stays centered */
+  margin: 16px auto;
+  max-width: 720px;
+  text-align: center;
+}
+
+.adLabel {
+  font-size: 12px;
+  color: #8aa;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+/* make the clickable wrapper shrink to content instead of 100% width */
+.adButton {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  display: inline-block;   /* <-- was width:100% */
+  max-width: 100%;
+}
+
+/* show the real image size; allow shrink on small screens */
+.adImg {
+  width: auto !important;  /* <-- was width:100% */
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;          /* center */
+}
+
+/* if a creative is HTML and contains its own <img>, keep it from overflowing */
+.adHtml {
+  display: inline-block;
+  max-width: 100%;
+}
+.adHtml :global(img) {
+  width: auto !important;
+  max-width: 100%;
+  height: auto;
+}
+
+.adDebug { margin-top: 6px; font-size: 12px; color: #eab308; opacity: .9; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1024px) {
+  .article { max-width: 800px; }
+}
+
+@media (max-width: 900px) {
+  .article {
+    padding: 16px 12px;
+    max-width: 98vw;
+    border-radius: 10px;
+  }
+  .featureImg { margin: 8px 0 14px; }
+  .galleryGrid { gap: 12px; }
+}
+
+@media (max-width: 600px) {
+  .article {
+    padding: 10px 3.5vw;
+    font-size: 1em;
+    border-radius: 8px;
+  }
+  .title { font-size: clamp(1.1rem, 1rem + 2vw, 1.3rem); }
+  .authorAvatar { width: 24px; height: 24px; }
+  .meta { gap: 10px; font-size: .96rem; }
+  .content { line-height: 1.68; }
+  .galleryImg { border-radius: 8px; }
+}

@@ -1,0 +1,97 @@
+/* Layout */
+.container { padding: 20px; }
+.h2 { margin: 0; font-weight: 700; }
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbarHeader { justify-content: space-between; }
+.toolbarTabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+
+/* Inputs & buttons */
+.input, .select {
+  background: #111825;
+  color: #e5e7eb;
+  border: 1px solid #273142;
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 150px;
+}
+.btnPrimary {
+  background: #2563eb;
+  color: white;
+  padding: 8px 14px;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 600;
+}
+.btnGhost {
+  background: transparent;
+  border: 1px solid #334155;
+  color: #e5e7eb;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.btnGhost:disabled { opacity: 0.6; cursor: not-allowed; }
+.btnIcon { margin-right: 6px; }
+
+/* Chips */
+.chip {
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: #cbd5e1;
+  border-radius: 9999px;
+  padding: 6px 12px;
+  font-weight: 600;
+}
+.chipActive { background: #1f2937; color: #fff; border-color: #475569; }
+
+/* Card + table */
+.card { background: #0b1220; border: 1px solid #22304a; border-radius: 12px; }
+.cardBodyCenter { padding: 40px 20px; text-align: center; }
+.tableResponsive { width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.th {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #1f2a3d;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.tr { border-bottom: 1px solid #152033; }
+.td, .tdDate, .tdTitle { padding: 12px; vertical-align: top; }
+.tdTitle .title { font-weight: 700; margin-bottom: 4px; }
+.metaDim { font-size: 12px; color: #8191a7; }
+.dim { opacity: .6; }
+
+/* Badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
+}
+.badgeSuccess { background:#063d2b; color:#34d399; }
+.badgeSecondary { background:#1f2937; color:#cbd5e1; }
+.badgeWarning { background:#3b2e05; color:#f59e0b; }
+.badgeInfo { background:#0c2b3d; color:#38bdf8; }
+.badgeDanger { background:#3d0c14; color:#f87171; }
+.badgeSpin { margin-left: 6px; }
+
+/* Actions (row) */
+.actions { display: flex; align-items: center; gap: 10px; }
+.actionLinkPrimary, .actionLinkDanger, .actionLinkSuccess, .actionLinkInfo, .playLink {
+  border: none; background: none; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+}
+.actionLinkPrimary { color: #60a5fa; }
+.actionLinkDanger  { color: #fb7185; }
+.actionLinkSuccess { color: #34d399; }
+.actionLinkInfo    { color: #38bdf8; }
+.playLink          { color: #a3e635; }
+
+/* Audio cell */
+.audioWrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.langSelect { min-width: 72px; padding: 4px 6px; border-radius: 6px; border: 1px solid #334155; background:#0b1220; color:#e5e7eb; }
+.tdDate { min-width: 180px; }
+
+/* Title cell */
+.tdTitle { min-width: 220px; }
+.title { font-size: 14px; }

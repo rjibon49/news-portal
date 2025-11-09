@@ -56,6 +56,15 @@ type MeInfo = {
   canPublishNow?: boolean;
 };
 
+// ---------- TTS Types ----------
+type TtsGenResp = {
+  url: string;
+  duration_sec?: number;
+  chars?: number;
+  lang?: string;
+  voice?: string;
+};
+
 /** --------------- Helpers --------------- */
 async function fetchJson<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: "no-store" });
@@ -91,6 +100,21 @@ function getCurrentDateTimeForInputBD(): string {
   return `${bd.getUTCFullYear()}-${pad(bd.getUTCMonth() + 1)}-${pad(bd.getUTCDate())}T${pad(
     bd.getUTCHours()
   )}:${pad(bd.getUTCMinutes())}`;
+}
+
+/** Plain-text extractor (editor HTML → text) */
+function stripHtml(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /* ==================== Page ==================== */
@@ -137,6 +161,12 @@ export default function NewPostPage() {
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // ---------- TTS UI state ----------
+  const [ttsLang, setTtsLang] = useState<"bn-BD" | "en-US">("bn-BD");
+  const [ttsVoice, setTtsVoice] = useState<string>("female_1"); // backend map করবে
+  const [ttsBusy, setTtsBusy] = useState(false);
+  const [ttsAudio, setTtsAudio] = useState<TtsGenResp | null>(null);
 
   // compute publish permission (local rule)
   const canPublishNow = useMemo(
@@ -405,7 +435,7 @@ export default function NewPostPage() {
   const {
     state: autoState,
     lastSavedAt,
-    ensureId,                     // ⬅️ use this in Save/Publish
+    ensureId,                     // ⬅️ use this in Save/Publish and TTS
   } = useAutoDraft({
     mode: "new",
     storageKey: "autosave:new-post",
@@ -449,6 +479,42 @@ export default function NewPostPage() {
       : lastSavedAt
       ? `Autosaved ${lastSavedAt.toLocaleTimeString()}`
       : "";
+
+  /* -------------------- TTS actions -------------------- */
+  async function onGenerateTts() {
+    try {
+      if (!content.trim()) return toast.error("Write some content first.");
+      setTtsBusy(true);
+      const id = await ensureId(); // draft ensure
+
+      const text = stripHtml(content);
+      if (!text) {
+        setTtsBusy(false);
+        return toast.error("Nothing to convert. Please add content.");
+      }
+
+      const res = await fetch("/api/r2/tts/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId: id,
+          lang: ttsLang,
+          voice: ttsVoice,
+          text,
+          title: title?.trim() || undefined,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as TtsGenResp & { error?: string };
+      if (!res.ok) throw new Error(j?.error || "TTS failed");
+
+      setTtsAudio(j);
+      toast.success("Audio generated");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to generate audio");
+    } finally {
+      setTtsBusy(false);
+    }
+  }
 
   /* -------------------- UI -------------------- */
   if (loading) {
@@ -813,6 +879,63 @@ export default function NewPostPage() {
                     </button>
                     <small className={styles.mutedCenter}>No image selected</small>
                   </>
+                )}
+              </div>
+            </div>
+
+            {/* 🔊 Text-to-Audio (TTS) */}
+            <div className={`card ${styles.card}`}>
+              <div className={`card-hd ${styles.cardHd}`}>Text-to-Audio</div>
+              <div className={`card-bd ${styles.cardBdCol}`}>
+                <label className={styles.field}>
+                  <span className="label">Language</span>
+                  <select
+                    className={`select ${styles.input}`}
+                    value={ttsLang}
+                    onChange={(e) => setTtsLang(e.target.value as any)}
+                  >
+                    <option value="bn-BD">Bengali (Bangladesh)</option>
+                    <option value="en-US">English (US)</option>
+                  </select>
+                </label>
+
+                <label className={styles.field}>
+                  <span className="label">Voice</span>
+                  <select
+                    className={`select ${styles.input}`}
+                    value={ttsVoice}
+                    onChange={(e) => setTtsVoice(e.target.value)}
+                  >
+                    {/* backend-mapping অনুযায়ী নাম দিন */}
+                    <option value="female_1">Female 1</option>
+                    <option value="male_1">Male 1</option>
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  className={`btn ${styles.primary}`}
+                  onClick={onGenerateTts}
+                  disabled={ttsBusy}
+                >
+                  {ttsBusy ? "Generating…" : "Generate from Content"}
+                </button>
+
+                {ttsAudio?.url ? (
+                  <>
+                    <small className={styles.muted}>
+                      {ttsAudio.duration_sec ? `~${Math.round(ttsAudio.duration_sec)}s` : ""}{" "}
+                      {ttsAudio.chars ? `(${ttsAudio.chars} chars)` : ""}
+                    </small>
+                    <audio controls preload="none" src={ttsAudio.url} style={{ width: "100%" }} />
+                    <small className={styles.muted}>
+                      This audio will appear at the top of the single article page.
+                    </small>
+                  </>
+                ) : (
+                  <small className={styles.muted}>
+                    Click “Generate from Content” to create an audio narration.
+                  </small>
                 )}
               </div>
             </div>

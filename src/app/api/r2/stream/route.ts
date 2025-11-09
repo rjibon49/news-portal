@@ -7,8 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/r2/stream?startSlug=<slug>&limit=10&offset=0
- * - publish পোস্টগুলোকে post_date desc অর্ডারে রিটার্ন করে
- * - startSlug দিলে ওই পোস্টের তারিখ ধরে "তার পরে যেগুলো" (older) রিটার্ন করে
+ * Returns related posts from the *same category*, excluding the current.
  */
 export async function GET(req: Request) {
   try {
@@ -17,37 +16,67 @@ export async function GET(req: Request) {
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 10), 1), 50);
     const offset = Math.max(Number(url.searchParams.get("offset") || 0), 0);
 
-    // current post date বের করি (না দিলে এখনকার সময় ধরে)
-    let startDate = null as string | null;
+    // Find all category IDs for the current post
+    let categoryIds: number[] = [];
     if (startSlug) {
-      const r = await query<{ post_date: string }>(
-        `SELECT post_date FROM wp_posts WHERE post_type='post' AND post_status='publish' AND post_name=? LIMIT 1`,
+      const catRows = await query<{ term_id: number }>(
+        `
+        SELECT tt.term_id
+        FROM wp_terms t
+        JOIN wp_term_taxonomy tt ON tt.term_id = t.term_id AND tt.taxonomy='category'
+        JOIN wp_term_relationships tr ON tr.term_taxonomy_id = tt.term_taxonomy_id
+        JOIN wp_posts p ON p.ID = tr.object_id
+        WHERE p.post_name = ? AND p.post_type='post' AND p.post_status='publish'
+        `,
         [startSlug]
       );
-      startDate = r[0]?.post_date || null;
+      categoryIds = catRows.map(r => r.term_id);
     }
 
-    // older posts (startDate থাকলে <=, না থাকলে সব), newest->oldest
-    const rows = await query<{ slug: string; id: number; title: string; date: string }>(
-      `
-      SELECT p.post_name AS slug, p.ID AS id, p.post_title AS title, p.post_date AS date
-      FROM wp_posts p
-      WHERE p.post_type='post'
-        AND p.post_status='publish'
-        ${startDate ? `AND p.post_date <= ?` : ``}
-      ORDER BY p.post_date DESC, p.ID DESC
-      LIMIT ?, ?
-      `,
-      startDate ? [startDate, offset, limit] : [offset, limit]
-    );
+    let rows: { slug: string; id: number; title: string; date: string }[] = [];
 
-    // null slug বাদ
-    const items = rows.filter(r => !!r.slug).map(r => ({
-      slug: r.slug,
-      id: r.id,
-      title: r.title,
-      date: r.date,
-    }));
+    if (categoryIds.length > 0) {
+      // Related articles: same category, published, not self
+      rows = await query(
+        `
+        SELECT DISTINCT p.post_name AS slug, p.ID AS id, p.post_title AS title, p.post_date AS date
+        FROM wp_posts p
+        JOIN wp_term_relationships tr ON tr.object_id = p.ID
+        JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+        WHERE p.post_type='post'
+          AND p.post_status='publish'
+          AND p.post_name != ?
+          AND tt.taxonomy = 'category'
+          AND tt.term_id IN (${categoryIds.map(() => "?").join(",")})
+        ORDER BY p.post_date DESC, p.ID DESC
+        LIMIT ?, ?
+        `,
+        [startSlug, ...categoryIds, offset, limit]
+      );
+    } else {
+      // Fallback for no category: just fetch latest published, excluding self
+      rows = await query(
+        `
+        SELECT p.post_name AS slug, p.ID AS id, p.post_title AS title, p.post_date AS date
+        FROM wp_posts p
+        WHERE p.post_type='post'
+          AND p.post_status='publish'
+          AND p.post_name != ?
+        ORDER BY p.post_date DESC, p.ID DESC
+        LIMIT ?, ?
+        `,
+        [startSlug, offset, limit]
+      );
+    }
+
+    const items = rows
+      .filter(r => !!r.slug && !!r.id)
+      .map(r => ({
+        slug: r.slug,
+        id: r.id,
+        title: r.title,
+        date: r.date,
+      }));
 
     return NextResponse.json({ items, offset, limit });
   } catch (e: any) {

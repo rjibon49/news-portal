@@ -7,6 +7,8 @@ import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
 import MonthlyViewsChart, { MonthBucket } from "@/components/ui/charts/MonthlyViewsChart";
 import styles from "./dashboard.module.css";
 
+export const dynamic = "force-dynamic";
+
 type LatestPost = { id: number; title: string; slug: string; published_at: string };
 
 export default function DashboardHome() {

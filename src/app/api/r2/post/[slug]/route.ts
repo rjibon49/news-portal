@@ -1,10 +1,10 @@
 // -----------------------------------------------------------------------------
 // FILE: src/app/api/r2/post/[slug]/route.ts
-// Single post (by slug) + extras + author slug/avatar
-// - Try exact match on wp_posts.post_name
-// - Fallback: match LOWER(REPLACE(post_title,' ','-'))
+// Single post (by slug) + extras + author slug/avatar + AUDIO (from wp_post_extra)
+// - Exact match on wp_posts.post_name; fallback by title→slug
 // - Includes featured image url, extras from wp_post_extra
 // - Adds author { id, name, slug, avatarUrl } with robust fallbacks
+// - Adds audio: { status, url, lang, chars, duration_sec, updatedAt }
 // -----------------------------------------------------------------------------
 
 import { NextResponse } from "next/server";
@@ -78,6 +78,14 @@ type Row = {
   extra_format: "standard" | "gallery" | "video" | null;
   extra_gallery_json: string | null;
   extra_video_embed: string | null;
+
+  // AUDIO (from wp_post_extra)
+  audio_status: "none" | "queued" | "ready" | "error" | null;
+  audio_url: string | null;
+  audio_lang: string | null;
+  audio_chars: number | null;
+  audio_duration_sec: number | null;
+  audio_updated_at: string | null;
 };
 
 /* ---------- Queries ---------- */
@@ -122,6 +130,14 @@ function baseSelect(where: string, param: any) {
       ex.format       AS extra_format,
       ex.gallery_json AS extra_gallery_json,
       ex.video_embed  AS extra_video_embed,
+
+      /* AUDIO fields */
+      ex.audio_status        AS audio_status,
+      ex.audio_url           AS audio_url,
+      ex.audio_lang          AS audio_lang,
+      ex.audio_chars         AS audio_chars,
+      ex.audio_duration_sec  AS audio_duration_sec,
+      ex.audio_updated_at    AS audio_updated_at,
 
       /* category names */
       GROUP_CONCAT(DISTINCT CASE WHEN tt.taxonomy='category' THEN t.name END ORDER BY t.name SEPARATOR ', ') AS categories,
@@ -219,6 +235,19 @@ export async function GET(
       avatarUrl = `https://www.gravatar.com/avatar/${hash}?s=128&d=identicon`;
     }
 
+    /* ----- Audio payload (from wp_post_extra) ----- */
+    const audio =
+      row.audio_status || row.audio_url || row.audio_lang || row.audio_duration_sec != null
+        ? {
+            status: (row.audio_status as Row["audio_status"]) ?? null,
+            url: row.audio_url ?? null,
+            lang: row.audio_lang ?? null,
+            chars: row.audio_chars ?? null,
+            duration_sec: row.audio_duration_sec ?? null,
+            updatedAt: row.audio_updated_at ?? null,
+          }
+        : null;
+
     const post = {
       id: row.ID,
       slug: row.post_name || slug,
@@ -248,6 +277,9 @@ export async function GET(
       format: (row.extra_format as "standard" | "gallery" | "video" | null) ?? "standard",
       gallery,
       videoEmbed: row.extra_video_embed || null,
+
+      // NEW: audio block
+      audio,
     };
 
     return NextResponse.json(
